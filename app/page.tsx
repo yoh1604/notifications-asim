@@ -132,96 +132,94 @@ export default function UnifiedPage() {
   };
 
   const handleUploadJadwal = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  setIsProcessing(true);
-  setLogs(["📁 Memproses file jadwal..."]);
+    setIsProcessing(true);
+    setLogs(["📁 Memproses file jadwal..."]);
 
-  const reader = new FileReader();
-  reader.onload = async (evt) => {
-    try {
-      const bstr = evt.target?.result;
-      const workbook = XLSX.read(bstr, { type: 'binary', cellDates: true, raw: false });
-      const wsname = workbook.SheetNames[0];
-      const rawDataExcel: any[] = XLSX.utils.sheet_to_json(workbook.Sheets[wsname]);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const workbook = XLSX.read(bstr, { type: 'binary', cellDates: true, raw: false });
+        const wsname = workbook.SheetNames[0];
+        const rawDataExcel: any[] = XLSX.utils.sheet_to_json(workbook.Sheets[wsname]);
 
-      const dataExcel = rawDataExcel.map(row => {
-        const findValue = (possibleNames: string[]) => {
-          const foundKey = Object.keys(row).find(key => 
-            possibleNames.includes(key.toLowerCase().trim())
-          );
-          return foundKey ? row[foundKey] : null;
-        };
+        const dataExcel = rawDataExcel.map(row => {
+          const findValue = (possibleNames: string[]) => {
+            const foundKey = Object.keys(row).find(key => 
+              possibleNames.includes(key.toLowerCase().trim())
+            );
+            return foundKey ? row[foundKey] : null;
+          };
 
-        const tglRaw = findValue(['tanggal', 'tgl', 'date']);
-        const safeDate = tglRaw instanceof Date ? tglRaw : new Date();
+          const tglRaw = findValue(['tanggal', 'tgl', 'date']);
+          const safeDate = tglRaw instanceof Date ? tglRaw : new Date();
 
-        return {
-          ...row,
-          Nama_Petugas: String(findValue(['nama_petugas', 'petugas']) || '').toUpperCase().trim(),
-          Nama_Koordinator: String(findValue(['nama_koordinator', 'koordinator']) || '').toUpperCase().trim(),
-          Jam: String(findValue(['jam', 'waktu']) || '-'),
-          TanggalRapi: safeDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-        };
-      }).filter(item => item.Nama_Petugas !== "");
+          return {
+            ...row,
+            Nama_Petugas: String(findValue(['nama_petugas', 'petugas']) || '').toUpperCase().trim(),
+            Nama_Koordinator: String(findValue(['nama_koordinator', 'koordinator']) || '').toUpperCase().trim(),
+            Jam: String(findValue(['jam', 'waktu']) || '-'),
+            TanggalRapi: safeDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+          };
+        }).filter(item => item.Nama_Petugas !== "");
 
-      setPreviewData(dataExcel);
-      setLogs(prev => [...prev, "🚀 Memulai pengiriman pesan massal..."]);
+        setPreviewData(dataExcel);
+        setLogs(prev => [...prev, "🚀 Memulai pengiriman pesan massal..."]);
 
-      // Ambil data pengawas dari database lokal (CSV)
-      const listPengawas = allAsimLocal.filter(a => 
-        ["YAKOBUS HERI PRIYANTO", "AGUSTINUS WAHYU SULISTYO", "IGNATIUS FEBIANTO KURNIAWAN", "YOHANES DWI PRASETYO DARMAWAN"]
-        // ["ADMIN 2", "ADMIN 1"]
-        .includes(String(a.asisten_imam).toUpperCase().trim())
-      );
-
-      let laporanUntukPengawas: string[] = [];
-      let setKoordinatorUnik = new Set<string>();
-
-      for (let i = 0; i < dataExcel.length; i++) {
-        const row = dataExcel[i];
-        const progress = `[${i + 1}/${dataExcel.length}]`;
-
-        // 1. JEDA PER BATCH (Setiap 10 Pesan, Istirahat 45 Detik)
-        if (i > 0 && i % 10 === 0) {
-          setLogs(prev => [...prev, "☕ Mencapai 10 pesan. Istirahat 45 detik"]);
-          await new Promise(res => setTimeout(res, 45000));
-        }
-
-        // 2. LOGIKA MULTI-KOORDINATOR (Pecah nama jika ada "&", ",", atau "DAN")
-        const namaKoordArray = row.Nama_Koordinator
-          .split(/[,&]|\bDAN\b/i) 
-          .map((n: string) => n.trim())
-          .filter((n: string) => n !== "");
-
-        // Cari data Petugas
-        const p = allAsimLocal.find(a => isSmartMatch(a.asisten_imam, row.Nama_Petugas));
+        // Data Pengawas
+        const listPengawas = allAsimLocal.filter(a => 
+          // ["YAKOBUS HERI PRIYANTO", "AGUSTINUS WAHYU SULISTYO", "IGNATIUS FEBIANTO KURNIAWAN", "YOHANES DWI PRASETYO DARMAWAN"]
+          ["ADMIN 1", "ADMIN 2"]
+          .includes(String(a.asisten_imam).toUpperCase().trim())
+        );
         
-        // Cari data semua Koordinator yang terlibat
-        const daftarKoordData = namaKoordArray.map((nama:string) => 
-          allAsimLocal.find(a => isSmartMatch(a.asisten_imam, nama))
-        ).filter(Boolean);
+        let laporanUntukPengawas: string[] = [];
+        let setKoordinatorUnik = new Set<string>();
+        
+        // OBJEK REKAP UNTUK KOORDINATOR
+        // Struktur: { "NAMA": { berhasil: [], gagal: [], no_hp: "" } }
+        let rekapPerKoordinator: Record<string, { berhasil: string[], gagal: string[], no_hp: string }> = {};
 
-        if (!p) {
-          setLogs(prev => [...prev, `⚠️ ${progress} SKIP: "${row.Nama_Petugas}" tidak ditemukan di CSV.`]);
-          continue;
-        }
+        for (let i = 0; i < dataExcel.length; i++) {
+          const row = dataExcel[i];
+          const progress = `[${i + 1}/${dataExcel.length}]`;
 
-        // Ambil link WA koordinator pertama untuk pesan petugas
-        // const koordUtama = daftarKoordData[0];
-        // const koordKedua = daftarKoordData[1];
-        // const rawNoK = koordUtama ? String(koordUtama.no_hp).replace(/[^0-9]/g, '') : '';
-        // const rawNoK2 = koordKedua ? String(koordKedua.no_hp).replace(/[^0-9]/g, '') : '';
-        // const linkWA = rawNoK ? `wa.me/62${rawNoK}` : '#';
-        // const linkWA2 = rawNoK2 ? `wa.me/62${rawNoK2}` : '#';
-        const linkChat = daftarKoordData.map((k: any) => {
-          const rawNo = String(k.no_hp).replace(/[^0-9]/g, '');
-          const cleanNo = rawNo.startsWith('0') ? '62' + rawNo.substring(1) : (rawNo.startsWith('62') ? rawNo : '62' + rawNo);
-          return `Klik untuk chat ${k.asisten_imam}: wa.me/${cleanNo}`;
-        }).join('\n');
+          if (i > 0 && i % 10 === 0) {
+            setLogs(prev => [...prev, "☕ Mencapai 10 pesan. Istirahat 45 detik agar aman..."]);
+            await new Promise(res => setTimeout(res, 45000));
+          }
 
-        const msgPetugas = `*PENGINGAT TUGAS ASISTEN IMAM*
+          // Pecah Nama Koordinator
+          const namaKoordArray = row.Nama_Koordinator
+            .split(/[,&]|\bDAN\b/i) 
+            .map((n: string) => n.trim())
+            .filter((n: string) => n !== "");
+
+          const p = allAsimLocal.find(a => isSmartMatch(a.asisten_imam, row.Nama_Petugas));
+          const daftarKoordData = namaKoordArray.map((nama: string) => 
+            allAsimLocal.find(a => isSmartMatch(a.asisten_imam, nama))
+          ).filter(Boolean);
+
+          if (!p) {
+            setLogs(prev => [...prev, `⚠️ ${progress} SKIP: "${row.Nama_Petugas}" tidak ditemukan di CSV.`]);
+            // Catat sebagai gagal di setiap koordinator terkait
+            daftarKoordData.forEach((k:any) => {
+              if (!rekapPerKoordinator[k.asisten_imam]) rekapPerKoordinator[k.asisten_imam] = { berhasil: [], gagal: [], no_hp: k.no_hp };
+              rekapPerKoordinator[k.asisten_imam].gagal.push(`${row.Nama_Petugas} (Tidak ada di database)`);
+            });
+            continue;
+          }
+
+          const linkChat = daftarKoordData.map((k: any) => {
+            const rawNo = String(k.no_hp).replace(/[^0-9]/g, '');
+            const cleanNo = rawNo.startsWith('0') ? '62' + rawNo.substring(1) : (rawNo.startsWith('62') ? rawNo : '62' + rawNo);
+            return `Klik chat ${k.asisten_imam}: wa.me/${cleanNo}`;
+          }).join('\n');
+
+          const msgPetugas = `*PENGINGAT TUGAS ASISTEN IMAM*
 
 Salam Damai,
 Bapak/Ibu *${row.Nama_Petugas}*
@@ -241,50 +239,74 @@ ${linkChat}
 
 Untuk mendapatkan asisten imam pengganti atau bertukar tugas. Bila 15 menit sebelum ibadat belum hadir maka akan digantikan personil AI lain yang telah siap menggantikan.
 
-Terima kasih. Tuhan memberkati. 🙏`;
+Terima kasih. Tuhan memberkati. 🙏`;          
+  
 
-          // 3. KIRIM KE PETUGAS
+          // KIRIM KE PETUGAS
           const resP = await sendWA(p.no_hp, msgPetugas);
           
+          const infoBaris = `${row.Nama_Petugas} (${row.Jam})`;
+
+          // CATAT STATUS KE REKAP KOORDINATOR
+          daftarKoordData.forEach((k: any) => {
+            const namaK = k.asisten_imam;
+            if (!rekapPerKoordinator[namaK]) {
+              rekapPerKoordinator[namaK] = { berhasil: [], gagal: [], no_hp: k.no_hp };
+            }
+            if (resP.status) rekapPerKoordinator[namaK].berhasil.push(infoBaris);
+            else rekapPerKoordinator[namaK].gagal.push(infoBaris);
+            setKoordinatorUnik.add(namaK);
+          });
+
           if (resP.status) {
             setLogs(prev => [...prev, `✅ ${progress} BERHASIL: ${row.Nama_Petugas}`]);
-            laporanUntukPengawas.push(`${i + 1}. *${row.Nama_Petugas}* (${row.Jam})`);
-
-            // 4. KIRIM LAPORAN KE SEMUA KOORDINATOR TERKAIT
-            for (const kData of daftarKoordData) {
-              if (kData && kData.no_hp) {
-                const msgKoord = `*LAPORAN SISTEM*\nHalo ${kData.asisten_imam}, notifikasi jadwal untuk *${row.Nama_Petugas}* (${row.Jam}) telah terkirim.`;
-                await sendWA(kData.no_hp, msgKoord);
-                if (kData.asisten_imam) setKoordinatorUnik.add(kData.asisten_imam);
-                await new Promise(res => setTimeout(res, 5000)); // Jeda antar koordinator
-              }
-            }
+            laporanUntukPengawas.push(`✅ ${infoBaris}`);
+          } else {
+            setLogs(prev => [...prev, `❌ ${progress} GAGAL: ${row.Nama_Petugas}`]);
+            laporanUntukPengawas.push(`❌ ${infoBaris} (Gagal WA)`);
           }
 
-          // 5. JEDA ACAK ANTAR BARIS (20 sampai 35 detik)
-          const msJeda = Math.floor(Math.random() * (35000 - 20000 + 1) + 20000);
-          setLogs(prev => [...prev, `⏳ Jeda aman ${msJeda/1000} detik...`]);
+          const msJeda = Math.floor(Math.random() * (45000 - 20000 + 1) + 20000);
           await new Promise(res => setTimeout(res, msJeda));
         }
 
-        // --- 6. KIRIM REKAP KE SEMUA PENGAWAS (Sekali saja di akhir) ---
+        // --- 4. KIRIM REKAP KE MASING-MASING KOORDINATOR ---
+        setLogs(prev => [...prev, "📱 Mengirim rekap ringkas ke para Koordinator..."]);
+        for (const namaK of Object.keys(rekapPerKoordinator)) {
+          const data = rekapPerKoordinator[namaK];
+          const tglTugas = dataExcel[0]?.TanggalRapi || "";
+          
+          let msgKoord = `*LAPORAN PENGIRIMAN JADWAL*\n\nHalo *${namaK}*, berikut rekap notifikasi tugas untuk tanggal:\n🗓️ ${tglTugas}\n`;
+          
+          if (data.berhasil.length > 0) {
+            msgKoord += `\n✅ *BERHASIL TERKIRIM:*\n- ${data.berhasil.join('\n- ')}`;
+          }
+          
+          if (data.gagal.length > 0) {
+            msgKoord += `\n\n⚠️ *BELUM TERKIRIM:*\n- ${data.gagal.join('\n- ')}`;
+          }
+
+          msgKoord += `\n\nTerima kasih. 🙏`;
+          
+          await sendWA(data.no_hp, msgKoord);
+          await new Promise(res => setTimeout(res, 10000)); // Jeda antar koordinator
+        }
+
+        // --- 5. KIRIM REKAP KE SEMUA PENGAWAS ---
         if (laporanUntukPengawas.length > 0 && listPengawas.length > 0) {
           const tglTugas = dataExcel[0]?.TanggalRapi || "";
-          const msgRekap = `*REKAP PENGIRIMAN JADWAL*
+          const msgRekap = `*REKAP AKHIR SISTEM JADWAL*
 🗓️ *Tgl Tugas:* ${tglTugas}
 👔 *Koordinator:* ${Array.from(setKoordinatorUnik).join(', ')}
 
-*Daftar Petugas Terkirim:*
+*Status Pengiriman:*
 ${laporanUntukPengawas.join('\n')}
 
-✅ Seluruh notifikasi telah selesai dikirim.`;
+✅ Seluruh proses telah selesai.`;
 
           for (const [index, pengawas] of listPengawas.entries()) {
             await sendWA(pengawas.no_hp, msgRekap);
-            if (index < listPengawas.length - 1) {
-              setLogs(prev => [...prev, `⏳ Jeda 10 detik antar pengawas...`]);
-              await new Promise(res => setTimeout(res, 10000)); 
-            }
+            if (index < listPengawas.length - 1) await new Promise(res => setTimeout(res, 10000)); 
           }
           setLogs(prev => [...prev, "📱 Rekap kolektif terkirim ke Pengawas."]);
         }
@@ -298,6 +320,165 @@ ${laporanUntukPengawas.join('\n')}
     };
     reader.readAsBinaryString(file);
   };
+//   const handleUploadJadwal = async (e: React.ChangeEvent<HTMLInputElement>) => {
+//   const file = e.target.files?.[0];
+//   if (!file) return;
+
+//   setIsProcessing(true);
+//   setLogs(["📁 Memproses file jadwal..."]);
+
+//   const reader = new FileReader();
+//   reader.onload = async (evt) => {
+//     try {
+//       const bstr = evt.target?.result;
+//       const workbook = XLSX.read(bstr, { type: 'binary', cellDates: true, raw: false });
+//       const wsname = workbook.SheetNames[0];
+//       const rawDataExcel: any[] = XLSX.utils.sheet_to_json(workbook.Sheets[wsname]);
+
+//       const dataExcel = rawDataExcel.map(row => {
+//         const findValue = (possibleNames: string[]) => {
+//           const foundKey = Object.keys(row).find(key => 
+//             possibleNames.includes(key.toLowerCase().trim())
+//           );
+//           return foundKey ? row[foundKey] : null;
+//         };
+
+//         const tglRaw = findValue(['tanggal', 'tgl', 'date']);
+//         const safeDate = tglRaw instanceof Date ? tglRaw : new Date();
+
+//         return {
+//           ...row,
+//           Nama_Petugas: String(findValue(['nama_petugas', 'petugas']) || '').toUpperCase().trim(),
+//           Nama_Koordinator: String(findValue(['nama_koordinator', 'koordinator']) || '').toUpperCase().trim(),
+//           Jam: String(findValue(['jam', 'waktu']) || '-'),
+//           TanggalRapi: safeDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+//         };
+//       }).filter(item => item.Nama_Petugas !== "");
+
+//       setPreviewData(dataExcel);
+//       setLogs(prev => [...prev, "🚀 Memulai pengiriman pesan massal..."]);
+
+//       const listPengawas = allAsimLocal.filter(a => 
+//         ["YAKOBUS HERI PRIYANTO", "AGUSTINUS WAHYU SULISTYO", "IGNATIUS FEBIANTO KURNIAWAN", "YOHANES DWI PRASETYO DARMAWAN"]
+//         // ["ADMIN 2", "ADMIN 1"]
+//         .includes(String(a.asisten_imam).toUpperCase().trim())
+//       );
+      
+//       let laporanUntukPengawas: string[] = [];
+//       let setKoordinatorUnik = new Set<string>();
+
+//       for (let i = 0; i < dataExcel.length; i++) {
+//         const row = dataExcel[i];
+//         const progress = `[${i + 1}/${dataExcel.length}]`;
+
+//         // 1. JEDA PER BATCH (Setiap 10 Pesan, Istirahat 45 Detik)
+//         if (i > 0 && i % 10 === 0) {
+//           setLogs(prev => [...prev, "☕ Mencapai 10 pesan. Istirahat 45 detik"]);
+//           await new Promise(res => setTimeout(res, 45000));
+//         }
+
+//         // 2. LOGIKA MULTI-KOORDINATOR (Pecah nama jika ada "&", ",", atau "DAN")
+//         const namaKoordArray = row.Nama_Koordinator
+//           .split(/[,&]|\bDAN\b/i) 
+//           .map((n: string) => n.trim())
+//           .filter((n: string) => n !== "");
+
+//         // Cari data Petugas
+//         const p = allAsimLocal.find(a => isSmartMatch(a.asisten_imam, row.Nama_Petugas));
+        
+//         // Cari data semua Koordinator yang terlibat
+//         const daftarKoordData = namaKoordArray.map((nama:string) => 
+//           allAsimLocal.find(a => isSmartMatch(a.asisten_imam, nama))
+//         ).filter(Boolean);
+
+//         if (!p) {
+//           setLogs(prev => [...prev, `⚠️ ${progress} SKIP: "${row.Nama_Petugas}" tidak ditemukan di CSV.`]);
+//           continue;
+//         }
+
+//         const linkChat = daftarKoordData.map((k: any) => {
+//           const rawNo = String(k.no_hp).replace(/[^0-9]/g, '');
+//           const cleanNo = rawNo.startsWith('0') ? '62' + rawNo.substring(1) : (rawNo.startsWith('62') ? rawNo : '62' + rawNo);
+//           return `Klik untuk chat ${k.asisten_imam}: wa.me/${cleanNo}`;
+//         }).join('\n');
+
+//         const msgPetugas = `*PENGINGAT TUGAS ASISTEN IMAM*
+
+// Salam Damai,
+// Bapak/Ibu *${row.Nama_Petugas}*
+
+// Mengingatkan kembali jadwal tugas pelayanan:
+// 🗓️ *Hari/Tgl:* ${row.TanggalRapi}
+// ⏰ *Jam:* ${row.Jam || '-'} WIB
+
+// Dimohon hadir paling lambat 30 menit sebelum ibadah dimulai & mematuhi ketentuan protokoler kesehatan. 
+
+// Jika Bapak/Ibu berhalangan hadir, segera hubungi Koordinator selambat-lambatnya H-2 sebelum jadwal tugas.
+
+// Koordinator Anda:
+// *${row.Nama_Koordinator}*
+
+// ${linkChat}
+
+// Untuk mendapatkan asisten imam pengganti atau bertukar tugas. Bila 15 menit sebelum ibadat belum hadir maka akan digantikan personil AI lain yang telah siap menggantikan.
+
+// Terima kasih. Tuhan memberkati. 🙏`;
+
+//           // 3. KIRIM KE PETUGAS
+//           const resP = await sendWA(p.no_hp, msgPetugas);
+          
+//           if (resP.status) {
+//             setLogs(prev => [...prev, `✅ ${progress} BERHASIL: ${row.Nama_Petugas}`]);
+//             laporanUntukPengawas.push(`${i + 1}. *${row.Nama_Petugas}* (${row.Jam})`);
+
+//             // 4. KIRIM LAPORAN KE SEMUA KOORDINATOR TERKAIT
+//             for (const kData of daftarKoordData) {
+//               if (kData && kData.no_hp) {
+//                 const msgKoord = `*LAPORAN SISTEM*\nHalo ${kData.asisten_imam}, notifikasi jadwal untuk *${row.Nama_Petugas}* (${row.Jam}) telah terkirim.`;
+//                 await sendWA(kData.no_hp, msgKoord);
+//                 if (kData.asisten_imam) setKoordinatorUnik.add(kData.asisten_imam);
+//                 await new Promise(res => setTimeout(res, 5000)); // Jeda antar koordinator
+//               }
+//             }
+//           }
+
+//           // 5. JEDA ACAK ANTAR BARIS (20 sampai 35 detik)
+//           const msJeda = Math.floor(Math.random() * (35000 - 20000 + 1) + 20000);
+//           setLogs(prev => [...prev, `⏳ Jeda aman ${msJeda/1000} detik...`]);
+//           await new Promise(res => setTimeout(res, msJeda));
+//         }
+
+//         // --- 6. KIRIM REKAP KE SEMUA PENGAWAS (Sekali saja di akhir) ---
+//         if (laporanUntukPengawas.length > 0 && listPengawas.length > 0) {
+//           const tglTugas = dataExcel[0]?.TanggalRapi || "";
+//           const msgRekap = `*REKAP PENGIRIMAN JADWAL*
+// 🗓️ *Tgl Tugas:* ${tglTugas}
+// 👔 *Koordinator:* ${Array.from(setKoordinatorUnik).join(', ')}
+
+// *Daftar Petugas Terkirim:*
+// ${laporanUntukPengawas.join('\n')}
+
+// ✅ Seluruh notifikasi telah selesai dikirim.`;
+
+//           for (const [index, pengawas] of listPengawas.entries()) {
+//             await sendWA(pengawas.no_hp, msgRekap);
+//             if (index < listPengawas.length - 1) {
+//               setLogs(prev => [...prev, `⏳ Jeda 10 detik antar pengawas...`]);
+//               await new Promise(res => setTimeout(res, 10000)); 
+//             }
+//           }
+//           setLogs(prev => [...prev, "📱 Rekap kolektif terkirim ke Pengawas."]);
+//         }
+
+//         setLogs(prev => [...prev, "🏁 PROSES SELESAI SEMUA."]);
+//       } catch (err) {
+//         setLogs(prev => [...prev, "❌ Terjadi kesalahan baca file."]);
+//       } finally {
+//         setIsProcessing(false);
+//       }
+//     };
+//     reader.readAsBinaryString(file);
+//   };
 
   if (loading) return <div className="p-10 text-center">Memuat Database CSV Lokal...</div>;
 
