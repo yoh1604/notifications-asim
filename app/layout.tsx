@@ -1,13 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Poppins } from 'next/font/google';
-
-// 1. Konfigurasi font Poppins
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'], 
-  variable: '--font-poppins', 
-});
 
 // 2. Metadata Aplikasi
 export const metadata: Metadata = {
@@ -22,12 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id">
-      <body
-        /* 3. Menerapkan Poppins ke seluruh aplikasi */
-        className={`${poppins.className} antialiased`}
-      >
-        {children}
-      </body>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

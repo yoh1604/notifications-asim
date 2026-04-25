@@ -1,14 +1,15 @@
 "use client"
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import type { Petugas } from '@/lib/types';
 
 export default function HomePage() {
-  const [listAsim, setListAsim] = useState<any[]>([]);
+  const [listAsim, setListAsim] = useState<Petugas[]>([]);
 
   useEffect(() => {
     async function ambilData() {
-      const { data } = await supabase.from('asisten_imam').select('*').order('wilayah', { ascending: true });
-      if (data) setListAsim(data);
+      const response = await fetch('/api/petugas');
+      const result = await response.json();
+      if (response.ok) setListAsim(result.data || []);
     }
     ambilData();
   }, []);
