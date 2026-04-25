@@ -1,0 +1,2 @@
+ALTER TABLE jadwal
+  DROP COLUMN IF EXISTS petugas_id;

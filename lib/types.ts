@@ -17,14 +17,23 @@ export type Koordinator = {
   aktif: boolean;
 };
 
+export type JadwalPetugas = {
+  id: number;
+  nama: string;
+  asisten_imam: string;
+  no_hp: string | null;
+  urutan: number;
+};
+
 export type Jadwal = {
   id: number;
   tanggal: string;
   jam: string;
-  petugas_id: number;
-  nama_petugas: string;
+  jumlah_petugas: number;
+  assigned_count: number;
   koordinator_id: number | null;
   nama_koordinator: string | null;
   status: "draft" | "terjadwal" | "selesai" | "batal";
   catatan: string | null;
+  petugas: JadwalPetugas[];
 };
