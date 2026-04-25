@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-notifications_asim}
+      POSTGRES_USER: ${POSTGRES_USER:-notifications_asim}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notifications_asim}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations/001_create_core_tables.sql:/docker-entrypoint-initdb.d/001_create_core_tables.sql:ro
+      - ./db/migrations/002_allow_jadwal_draft_slots.sql:/docker-entrypoint-initdb.d/002_allow_jadwal_draft_slots.sql:ro
+      - ./db/migrations/003_jadwal_header_detail.sql:/docker-entrypoint-initdb.d/003_jadwal_header_detail.sql:ro
+      - ./db/migrations/004_drop_legacy_jadwal_petugas_id.sql:/docker-entrypoint-initdb.d/004_drop_legacy_jadwal_petugas_id.sql:ro
+      - ./db/migrations/005_merge_legacy_jadwal_slots.sql:/docker-entrypoint-initdb.d/005_merge_legacy_jadwal_slots.sql:ro
+      - ./db/migrations/006_create_penugasan_petugas.sql:/docker-entrypoint-initdb.d/006_create_penugasan_petugas.sql:ro
+      - ./db/migrations/007_create_petugas_jadwal_pilihan.sql:/docker-entrypoint-initdb.d/007_create_petugas_jadwal_pilihan.sql:ro
+      - ./db/migrations/008_separate_randomize_and_save.sql:/docker-entrypoint-initdb.d/008_separate_randomize_and_save.sql:ro
+      - ./db/migrations/009_petugas_jadwal_waktu_pilihan.sql:/docker-entrypoint-initdb.d/009_petugas_jadwal_waktu_pilihan.sql:ro
+      - ./db/seeds/001_seed_petugas_from_csv.sql:/docker-entrypoint-initdb.d/010_seed_petugas_from_csv.sql:ro
+      - ./public/data/asisten_imam.csv:/docker-entrypoint-initdb.d/asisten_imam.csv:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-notifications_asim} -d ${POSTGRES_DB:-notifications_asim}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_FONNTE_TOKEN: ${NEXT_PUBLIC_FONNTE_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-notifications_asim}:${POSTGRES_PASSWORD:-notifications_asim}@db:5432/${POSTGRES_DB:-notifications_asim}
+      NEXT_PUBLIC_FONNTE_TOKEN: ${NEXT_PUBLIC_FONNTE_TOKEN:-}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
