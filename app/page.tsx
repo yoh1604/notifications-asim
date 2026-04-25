@@ -28,6 +28,49 @@ const sendWA = async (number: string, message: string) => {
   }
 };
 
+const formatTanggalRapi = (date: Date) => {
+  return date.toLocaleDateString("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+};
+
+const parseTanggalDdMmYyyy = (value: unknown) => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) return new Date(parsed.y, parsed.m - 1, parsed.d);
+  }
+
+  if (typeof value === "string") {
+    const clean = value.trim();
+    const match = clean.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (!match) return null;
+
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = Number(match[3]);
+    const parsed = new Date(year, month - 1, day);
+
+    if (
+      parsed.getFullYear() !== year ||
+      parsed.getMonth() !== month - 1 ||
+      parsed.getDate() !== day
+    ) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  return null;
+};
+
 const downloadTemplate = (
   setLogs: (fn: (prev: string[]) => string[]) => void,
 ) => {
@@ -35,13 +78,13 @@ const downloadTemplate = (
     // 1. Buat data contoh
     const data = [
       {
-        Tanggal: "2026-02-14",
+        Tanggal: "14-02-2026",
         Jam: "18:00",
         Nama_Petugas: "FRANSISCUS XAVERIUS SONY BOENAWAN",
         Nama_Koordinator: "IGNATIUS FEBIANTO KURNIAWAN",
       },
       {
-        Tanggal: "2026-02-15",
+        Tanggal: "15-02-2026",
         Jam: "07:00",
         Nama_Petugas: "CHRISTOPHER SETIABUDI",
         Nama_Koordinator: "IGNATIUS FEBIANTO KURNIAWAN",
@@ -255,7 +298,7 @@ export default function UnifiedPage() {
             };
 
             const tglRaw = findValue(["tanggal", "tgl", "date"]);
-            const safeDate = tglRaw instanceof Date ? tglRaw : new Date();
+            const parsedTanggal = parseTanggalDdMmYyyy(tglRaw);
 
             return {
               ...row,
@@ -268,15 +311,19 @@ export default function UnifiedPage() {
                 .toUpperCase()
                 .trim(),
               Jam: String(findValue(["jam", "waktu"]) || "-"),
-              TanggalRapi: safeDate.toLocaleDateString("id-ID", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              }),
+              TanggalRapi: parsedTanggal ? formatTanggalRapi(parsedTanggal) : "",
+              TanggalValid: Boolean(parsedTanggal),
             };
           })
-          .filter((item) => item.Nama_Petugas !== "");
+          .filter((item) => item.Nama_Petugas !== "" && item.TanggalValid);
+
+        const jumlahTanggalTidakValid = rawDataExcel.length - dataExcel.length;
+        if (jumlahTanggalTidakValid > 0) {
+          setLogs((prev) => [
+            ...prev,
+            `⚠️ ${jumlahTanggalTidakValid} baris dilewati karena format Tanggal bukan dd-mm-yyyy.`,
+          ]);
+        }
 
         setPreviewData(dataExcel);
         setLogs((prev) => [...prev, "🚀 Memulai pengiriman pesan massal..."]);
@@ -525,7 +572,7 @@ ${laporanUntukPengawas.join("\n")}
             };
 
             const tglRaw = findValue(["tanggal", "tgl", "date"]);
-            const safeDate = tglRaw instanceof Date ? tglRaw : new Date();
+            const parsedTanggal = parseTanggalDdMmYyyy(tglRaw);
 
             const namaPetugas = String(
               findValue(["nama_petugas", "petugas"]) || "",
@@ -533,22 +580,28 @@ ${laporanUntukPengawas.join("\n")}
               .toUpperCase()
               .trim();
             const jam = String(findValue(["jam", "waktu"]) || "-");
-            const tanggalRapi = safeDate.toLocaleDateString("id-ID", {
-              weekday: "long",
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            });
+            const tanggalRapi = parsedTanggal
+              ? formatTanggalRapi(parsedTanggal)
+              : "";
 
             return {
               ...row,
               Nama_Petugas: namaPetugas,
               Jam: jam,
               TanggalRapi: tanggalRapi,
+              TanggalValid: Boolean(parsedTanggal),
               id: `${namaPetugas}-${jam}-${Date.now()}-${Math.random()}`,
             };
           })
-          .filter((item) => item.Nama_Petugas !== "");
+          .filter((item) => item.Nama_Petugas !== "" && item.TanggalValid);
+
+        const jumlahTanggalTidakValid = rawDataExcel.length - dataExcel.length;
+        if (jumlahTanggalTidakValid > 0) {
+          setLogs((prev) => [
+            ...prev,
+            `⚠️ ${jumlahTanggalTidakValid} baris converter dilewati karena format Tanggal bukan dd-mm-yyyy.`,
+          ]);
+        }
 
         // Proses data untuk converter - cari data petugas di database
         const processedData = dataExcel.map((row) => {

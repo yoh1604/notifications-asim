@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import type { Jadwal, Koordinator, Petugas } from "@/lib/types";
 
 type DataManagerProps = {
@@ -28,9 +29,7 @@ const emptyKoordinatorForm = {
 const emptyJadwalForm = {
   tanggal: "",
   jam: "",
-  petugas_id: "",
-  koordinator_id: "",
-  catatan: "",
+  jumlah_petugas: "",
 };
 
 async function sendJson(url: string, method: string, payload?: ApiPayload) {
@@ -48,6 +47,52 @@ async function sendJson(url: string, method: string, payload?: ApiPayload) {
   return data;
 }
 
+function getPetugasNames(item: Jadwal) {
+  return item.petugas.map((petugas) => petugas.asisten_imam || petugas.nama);
+}
+
+function formatPetugasSummary(item: Jadwal) {
+  const names = getPetugasNames(item);
+
+  if (names.length === 0) return "-";
+
+  const visibleNames = names.slice(0, 3).join(", ");
+  return names.length > 3
+    ? `${visibleNames} +${names.length - 3}`
+    : visibleNames;
+}
+
+function downloadJadwalExcel(jadwal: Jadwal[]) {
+  const exportData = jadwal
+    .filter((item) => item.status !== "batal" && item.petugas.length > 0)
+    .flatMap((item) =>
+      item.petugas.map((petugas) => ({
+        Tanggal: item.tanggal,
+        Jam: item.jam || "",
+        Nama_Petugas: petugas.asisten_imam || petugas.nama,
+        Nama_Koordinator: item.nama_koordinator || "",
+      })),
+    );
+
+  if (exportData.length === 0) {
+    alert("Belum ada jadwal yang bisa diunduh.");
+    return;
+  }
+
+  const worksheet = XLSX.utils.json_to_sheet(exportData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Jadwal");
+
+  worksheet["!cols"] = [
+    { wch: 15 },
+    { wch: 10 },
+    { wch: 35 },
+    { wch: 35 },
+  ];
+
+  XLSX.writeFile(workbook, "Template_Jadwal_AI.xlsx");
+}
+
 export default function DataManager({
   petugas,
   koordinator,
@@ -57,7 +102,6 @@ export default function DataManager({
   const [petugasForm, setPetugasForm] = useState(emptyPetugasForm);
   const [koordinatorForm, setKoordinatorForm] = useState(emptyKoordinatorForm);
   const [jadwalForm, setJadwalForm] = useState(emptyJadwalForm);
-  const [eligiblePetugas, setEligiblePetugas] = useState<Petugas[]>([]);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -69,38 +113,15 @@ export default function DataManager({
     () => koordinator.filter((item) => item.aktif),
     [koordinator],
   );
-
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadEligibility() {
-      if (!jadwalForm.tanggal || !jadwalForm.jam) {
-        setEligiblePetugas([]);
-        return;
-      }
-
-      const params = new URLSearchParams({
-        eligible_tanggal: jadwalForm.tanggal,
-        eligible_jam: jadwalForm.jam,
-      });
-      const response = await fetch(`/api/petugas?${params.toString()}`);
-      const result = await response.json();
-
-      if (!ignore && response.ok) {
-        setEligiblePetugas(result.data || []);
-      }
-    }
-
-    loadEligibility().catch(() => {
-      if (!ignore) setEligiblePetugas([]);
-    });
-
-    return () => {
-      ignore = true;
-    };
-  }, [jadwalForm.tanggal, jadwalForm.jam]);
-
-  const petugasOptions = eligiblePetugas.length > 0 ? eligiblePetugas : activePetugas;
+  const draftJadwal = useMemo(
+    () =>
+      jadwal.filter(
+        (item) =>
+          item.status !== "batal" &&
+          item.assigned_count < item.jumlah_petugas,
+      ),
+    [jadwal],
+  );
 
   const handleCreatePetugas = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -113,7 +134,9 @@ export default function DataManager({
       setMessage("Petugas berhasil ditambahkan.");
       await onRefresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Gagal menambah petugas.");
+      setMessage(
+        error instanceof Error ? error.message : "Gagal menambah petugas.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -150,21 +173,62 @@ export default function DataManager({
     setMessage("");
 
     try {
+      const jumlahPetugas = Number(jadwalForm.jumlah_petugas);
+      if (!jumlahPetugas || jumlahPetugas < 1) {
+        throw new Error("Jumlah petugas wajib lebih dari 0.");
+      }
+
       await sendJson("/api/jadwal", "POST", {
         tanggal: jadwalForm.tanggal,
         jam: jadwalForm.jam,
-        petugas_id: Number(jadwalForm.petugas_id),
-        koordinator_id: jadwalForm.koordinator_id
-          ? Number(jadwalForm.koordinator_id)
-          : null,
-        catatan: jadwalForm.catatan || null,
+        jumlah_petugas: jumlahPetugas,
       });
       setJadwalForm(emptyJadwalForm);
-      setEligiblePetugas([]);
-      setMessage("Jadwal berhasil ditambahkan.");
+      setMessage(`Jadwal untuk ${jumlahPetugas} petugas berhasil dibuat.`);
       await onRefresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Gagal menambah jadwal.");
+      setMessage(
+        error instanceof Error ? error.message : "Gagal menambah jadwal.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRandomizeJadwal = async (id: number) => {
+    setSubmitting(true);
+    setMessage("");
+
+    try {
+      await sendJson(`/api/jadwal/${id}/randomize`, "POST");
+      setMessage("Petugas dan koordinator berhasil diacak.");
+      await onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Gagal randomize jadwal.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRandomizeDrafts = async () => {
+    if (draftJadwal.length === 0) return;
+
+    setSubmitting(true);
+    setMessage("");
+
+    try {
+      for (const item of draftJadwal) {
+        await sendJson(`/api/jadwal/${item.id}/randomize`, "POST");
+      }
+      setMessage(`${draftJadwal.length} jadwal berhasil diacak.`);
+      await onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Gagal randomize jadwal.",
+      );
+      await onRefresh();
     } finally {
       setSubmitting(false);
     }
@@ -179,7 +243,9 @@ export default function DataManager({
       setMessage("Jadwal berhasil dibatalkan.");
       await onRefresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Gagal membatalkan jadwal.");
+      setMessage(
+        error instanceof Error ? error.message : "Gagal membatalkan jadwal.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -313,77 +379,45 @@ export default function DataManager({
             Isi Jadwal
           </h3>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <input
-                type="date"
-                value={jadwalForm.tanggal}
-                onChange={(event) =>
-                  setJadwalForm({ ...jadwalForm, tanggal: event.target.value })
-                }
-                className="w-full border rounded-xl px-3 py-2 text-sm text-gray-900"
-                required
-              />
-              <input
-                type="time"
-                value={jadwalForm.jam}
-                onChange={(event) =>
-                  setJadwalForm({ ...jadwalForm, jam: event.target.value })
-                }
-                className="w-full border rounded-xl px-3 py-2 text-sm text-gray-900"
-                required
-              />
-            </div>
-            <select
-              value={jadwalForm.petugas_id}
+            <input
+              type="date"
+              value={jadwalForm.tanggal}
               onChange={(event) =>
-                setJadwalForm({ ...jadwalForm, petugas_id: event.target.value })
+                setJadwalForm({ ...jadwalForm, tanggal: event.target.value })
               }
               className="w-full border rounded-xl px-3 py-2 text-sm text-gray-900"
               required
-            >
-              <option value="">Pilih petugas</option>
-              {petugasOptions.map((item) => (
-                <option
-                  key={item.id}
-                  value={item.id}
-                  disabled={item.eligible === false}
-                >
-                  {item.asisten_imam}
-                  {item.eligible === false ? " - tunggu giliran" : ""}
-                </option>
-              ))}
-            </select>
-            <select
-              value={jadwalForm.koordinator_id}
+            />
+            <input
+              type="time"
+              value={jadwalForm.jam}
+              onChange={(event) =>
+                setJadwalForm({ ...jadwalForm, jam: event.target.value })
+              }
+              className="w-full border rounded-xl px-3 py-2 text-sm text-gray-900"
+              required
+            />
+            <input
+              type="number"
+              min="1"
+              max={activePetugas.length || undefined}
+              value={jadwalForm.jumlah_petugas}
               onChange={(event) =>
                 setJadwalForm({
                   ...jadwalForm,
-                  koordinator_id: event.target.value,
+                  jumlah_petugas: event.target.value,
                 })
               }
+              placeholder="Jumlah petugas"
               className="w-full border rounded-xl px-3 py-2 text-sm text-gray-900"
-            >
-              <option value="">Pilih koordinator (opsional)</option>
-              {activeKoordinator.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nama}
-                </option>
-              ))}
-            </select>
-            <input
-              value={jadwalForm.catatan}
-              onChange={(event) =>
-                setJadwalForm({ ...jadwalForm, catatan: event.target.value })
-              }
-              placeholder="Catatan"
-              className="w-full border rounded-xl px-3 py-2 text-sm text-gray-900"
+              required
             />
           </div>
           <button
             disabled={submitting}
             className="mt-4 w-full bg-green-600 text-white rounded-xl py-2 text-xs font-black hover:bg-green-700 disabled:bg-green-300"
           >
-            Simpan Jadwal
+            Buat Jadwal
           </button>
         </form>
       </div>
@@ -428,50 +462,89 @@ export default function DataManager({
         </div>
 
         <div className="xl:col-span-2 bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-          <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">
-            Jadwal Terbaru
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+            <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest">
+              Jadwal Terbaru
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleRandomizeDrafts}
+                disabled={submitting || draftJadwal.length === 0}
+                className="bg-blue-600 text-white rounded-xl px-3 py-2 text-[11px] font-black hover:bg-blue-700 disabled:bg-blue-300"
+              >
+                Randomize Jadwal Draft
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadJadwalExcel(jadwal)}
+                disabled={jadwal.length === 0}
+                className="bg-green-600 text-white rounded-xl px-3 py-2 text-[11px] font-black hover:bg-green-700 disabled:bg-green-300"
+              >
+                Download Excel
+              </button>
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="text-left text-gray-400 border-b">
                   <th className="py-2 pr-4">Tanggal</th>
                   <th className="py-2 pr-4">Jam</th>
+                  <th className="py-2 pr-4">Jumlah</th>
                   <th className="py-2 pr-4">Petugas</th>
                   <th className="py-2 pr-4">Koordinator</th>
                   <th className="py-2 pr-4">Status</th>
-                  <th className="py-2 pr-4"></th>
+                  <th className="py-2 pr-4 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {jadwal.map((item) => (
                   <tr key={item.id} className="text-gray-700">
                     <td className="py-3 pr-4 font-semibold">{item.tanggal}</td>
-                    <td className="py-3 pr-4">{item.jam}</td>
-                    <td className="py-3 pr-4">{item.nama_petugas}</td>
+                    <td className="py-3 pr-4">{item.jam || "-"}</td>
+                    <td className="py-3 pr-4">
+                      {item.assigned_count}/{item.jumlah_petugas}
+                    </td>
+                    <td
+                      className="py-3 pr-4 max-w-72"
+                      title={getPetugasNames(item).join(", ")}
+                    >
+                      {formatPetugasSummary(item)}
+                    </td>
                     <td className="py-3 pr-4">
                       {item.nama_koordinator || "-"}
                     </td>
                     <td className="py-3 pr-4 uppercase text-[10px] font-black">
                       {item.status}
                     </td>
-                    <td className="py-3 pr-4 text-right">
+                    <td className="py-3 pr-4">
                       {item.status !== "batal" && (
-                        <button
-                          type="button"
-                          onClick={() => handleCancelJadwal(item.id)}
-                          disabled={submitting}
-                          className="text-red-600 font-bold hover:text-red-800 disabled:text-red-300"
-                        >
-                          Batalkan
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleRandomizeJadwal(item.id)}
+                            disabled={submitting}
+                            className="text-blue-600 font-bold hover:text-blue-800 disabled:text-blue-300"
+                          >
+                            Randomize Petugas & Koord.
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelJadwal(item.id)}
+                            disabled={submitting}
+                            className="text-red-600 font-bold hover:text-red-800 disabled:text-red-300"
+                          >
+                            Batalkan
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
                 ))}
                 {jadwal.length === 0 && (
                   <tr>
-                    <td className="py-8 text-center text-gray-400" colSpan={6}>
+                    <td className="py-8 text-center text-gray-400" colSpan={7}>
                       Belum ada jadwal.
                     </td>
                   </tr>
