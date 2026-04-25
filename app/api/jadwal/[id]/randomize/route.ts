@@ -117,6 +117,7 @@ export async function POST(_request: Request, context: RouteContext) {
               AND pp.jadwal_id <> $3::bigint
           ) pc ON true
           WHERE p.aktif = true
+            AND petugas_boleh_jadwal(p.id, $3::bigint)
             AND can_assign_petugas(p.id, $1::date, $2::time, $3::bigint)
           ORDER BY pc.total_penugasan ASC, random()
           LIMIT $4
@@ -126,7 +127,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
       if (petugasResult.rows.length < target.jumlah_petugas) {
         throw new Error(
-          "Jumlah petugas yang memenuhi aturan rotasi tidak cukup untuk jadwal ini.",
+          "Jumlah petugas yang memenuhi aturan rotasi serta pilihan hari dan jam tidak cukup untuk jadwal ini.",
         );
       }
 
@@ -147,6 +148,7 @@ export async function POST(_request: Request, context: RouteContext) {
               AND pp.jadwal_id <> $2::bigint
           ) pc ON true
           WHERE p.aktif = true
+            AND petugas_boleh_jadwal(p.id, $2::bigint)
           ORDER BY CASE WHEN p.id = ANY($1::integer[]) THEN 1 ELSE 0 END,
                    pc.total_penugasan ASC,
                    random()
@@ -192,8 +194,7 @@ export async function POST(_request: Request, context: RouteContext) {
         `
           UPDATE jadwal
           SET
-            koordinator_id = $2,
-            status = 'terjadwal'
+            koordinator_id = $2
           WHERE id = $1
         `,
         [jadwalId, koordinatorId],

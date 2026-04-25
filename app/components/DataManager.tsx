@@ -11,7 +11,21 @@ type DataManagerProps = {
   onRefresh: () => Promise<void>;
 };
 
-type ApiPayload = Record<string, string | number | boolean | null>;
+type ApiPayloadValue =
+  | string
+  | number
+  | boolean
+  | null
+  | number[]
+  | Array<Record<string, string | number>>;
+
+type ApiPayload = Record<string, ApiPayloadValue>;
+
+type PetugasWaktuPilihan = {
+  id?: number;
+  hari: number;
+  jam: string;
+};
 
 type PetugasPenugasanDetail = {
   petugas: Petugas;
@@ -23,6 +37,7 @@ type PetugasPenugasanDetail = {
     status: string;
     nama_koordinator: string | null;
   }>;
+  waktu_pilihan: PetugasWaktuPilihan[];
 };
 
 const emptyPetugasForm = {
@@ -43,6 +58,21 @@ const emptyJadwalForm = {
   jam: "",
   jumlah_petugas: "",
 };
+
+const emptyWaktuPilihanForm = {
+  hari: "1",
+  jam: "",
+};
+
+const dayOptions = [
+  { value: 1, label: "Senin" },
+  { value: 2, label: "Selasa" },
+  { value: 3, label: "Rabu" },
+  { value: 4, label: "Kamis" },
+  { value: 5, label: "Jumat" },
+  { value: 6, label: "Sabtu" },
+  { value: 0, label: "Minggu" },
+];
 
 async function sendJson(url: string, method: string, payload?: ApiPayload) {
   const response = await fetch(url, {
@@ -88,8 +118,8 @@ function formatStatus(item: Jadwal) {
   return item.status;
 }
 
-function downloadJadwalExcel(jadwal: Jadwal[]) {
-  const exportData = jadwal
+function buildJadwalExportData(jadwal: Jadwal[]) {
+  return jadwal
     .filter((item) => item.status !== "batal" && item.petugas.length > 0)
     .flatMap((item) =>
       item.petugas.map((petugas) => ({
@@ -99,7 +129,12 @@ function downloadJadwalExcel(jadwal: Jadwal[]) {
         Nama_Koordinator: item.nama_koordinator || "",
       })),
     );
+}
 
+function writeJadwalExcel(
+  exportData: ReturnType<typeof buildJadwalExportData>,
+  fileName: string,
+) {
   if (exportData.length === 0) {
     alert("Belum ada jadwal yang bisa diunduh.");
     return;
@@ -116,7 +151,47 @@ function downloadJadwalExcel(jadwal: Jadwal[]) {
     { wch: 35 },
   ];
 
-  XLSX.writeFile(workbook, "Template_Jadwal_AI.xlsx");
+  XLSX.writeFile(workbook, fileName);
+}
+
+function downloadJadwalExcel(jadwal: Jadwal[]) {
+  const exportData = buildJadwalExportData(jadwal);
+  writeJadwalExcel(exportData, "Template_Jadwal_AI.xlsx");
+}
+
+function downloadSingleJadwalExcel(item: Jadwal) {
+  const jam = item.jam.replace(/[^0-9]/g, "") || "jadwal";
+  const fileName = `Template_Jadwal_AI_${item.tanggal}_${jam}.xlsx`;
+  const exportData = buildJadwalExportData([item]);
+  writeJadwalExcel(exportData, fileName);
+}
+
+function canSaveJadwal(item: Jadwal) {
+  return (
+    item.status === "draft" &&
+    item.assigned_count === item.jumlah_petugas &&
+    item.koordinator_id !== null
+  );
+}
+
+function canDownloadJadwal(item: Jadwal) {
+  return item.status !== "batal" && item.petugas.length > 0;
+}
+
+function getDayName(value: number) {
+  return dayOptions.find((item) => item.value === value)?.label || "-";
+}
+
+function getDaySortValue(value: number) {
+  return value === 0 ? 7 : value;
+}
+
+function sortWaktuPilihan(items: PetugasWaktuPilihan[]) {
+  return [...items].sort((a, b) => {
+    const dayDiff = getDaySortValue(a.hari) - getDaySortValue(b.hari);
+    if (dayDiff !== 0) return dayDiff;
+    return a.jam.localeCompare(b.jam);
+  });
 }
 
 export default function DataManager({
@@ -132,7 +207,14 @@ export default function DataManager({
   const [submitting, setSubmitting] = useState(false);
   const [selectedPetugasDetail, setSelectedPetugasDetail] =
     useState<PetugasPenugasanDetail | null>(null);
+  const [selectedWaktuPilihan, setSelectedWaktuPilihan] = useState<
+    PetugasWaktuPilihan[]
+  >([]);
+  const [waktuPilihanForm, setWaktuPilihanForm] = useState(
+    emptyWaktuPilihanForm,
+  );
   const [petugasDetailLoading, setPetugasDetailLoading] = useState(false);
+  const [petugasJadwalSaving, setPetugasJadwalSaving] = useState(false);
   const [petugasDetailError, setPetugasDetailError] = useState("");
 
   const activePetugas = useMemo(
@@ -237,11 +319,28 @@ export default function DataManager({
 
     try {
       await sendJson(`/api/jadwal/${id}/randomize`, "POST");
-      setMessage("Petugas, koordinator, dan count penugasan berhasil disimpan.");
+      setMessage("Petugas dan koordinator berhasil diacak. Klik Simpan untuk mengunci jadwal.");
       await onRefresh();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Gagal randomize jadwal.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSaveJadwal = async (id: number) => {
+    setSubmitting(true);
+    setMessage("");
+
+    try {
+      await sendJson(`/api/jadwal/${id}/save`, "POST");
+      setMessage("Jadwal berhasil disimpan dan penugasan sudah dihitung.");
+      await onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Gagal menyimpan jadwal.",
       );
     } finally {
       setSubmitting(false);
@@ -258,7 +357,7 @@ export default function DataManager({
       for (const item of draftJadwal) {
         await sendJson(`/api/jadwal/${item.id}/randomize`, "POST");
       }
-      setMessage(`${draftJadwal.length} jadwal berhasil diacak dan disimpan.`);
+      setMessage(`${draftJadwal.length} jadwal berhasil diacak. Simpan jadwal yang sudah siap.`);
       await onRefresh();
     } catch (error) {
       setMessage(
@@ -297,7 +396,13 @@ export default function DataManager({
   };
 
   const handleOpenPetugasDetail = async (item: Petugas) => {
-    setSelectedPetugasDetail({ petugas: item, penugasan: [] });
+    setSelectedPetugasDetail({
+      petugas: item,
+      penugasan: [],
+      waktu_pilihan: [],
+    });
+    setSelectedWaktuPilihan([]);
+    setWaktuPilihanForm(emptyWaktuPilihanForm);
     setPetugasDetailLoading(true);
     setPetugasDetailError("");
 
@@ -308,6 +413,7 @@ export default function DataManager({
       )) as { data?: PetugasPenugasanDetail };
       if (result.data) {
         setSelectedPetugasDetail(result.data);
+        setSelectedWaktuPilihan(sortWaktuPilihan(result.data.waktu_pilihan));
       }
     } catch (error) {
       setPetugasDetailError(
@@ -322,8 +428,75 @@ export default function DataManager({
 
   const handleClosePetugasDetail = () => {
     setSelectedPetugasDetail(null);
+    setSelectedWaktuPilihan([]);
+    setWaktuPilihanForm(emptyWaktuPilihanForm);
     setPetugasDetailLoading(false);
+    setPetugasJadwalSaving(false);
     setPetugasDetailError("");
+  };
+
+  const handleAddWaktuPilihan = () => {
+    const hari = Number(waktuPilihanForm.hari);
+    const jam = waktuPilihanForm.jam;
+
+    if (!Number.isInteger(hari) || hari < 0 || hari > 6 || !jam) {
+      setPetugasDetailError("Hari dan jam pilihan wajib valid.");
+      return;
+    }
+
+    if (
+      selectedWaktuPilihan.some(
+        (item) => item.hari === hari && item.jam === jam,
+      )
+    ) {
+      setPetugasDetailError("Pilihan hari dan jam sudah ada.");
+      return;
+    }
+
+    setSelectedWaktuPilihan((current) =>
+      sortWaktuPilihan([...current, { hari, jam }]),
+    );
+    setWaktuPilihanForm((current) => ({ ...current, jam: "" }));
+    setPetugasDetailError("");
+  };
+
+  const handleRemoveWaktuPilihan = (index: number) => {
+    setSelectedWaktuPilihan((current) =>
+      current.filter((_, itemIndex) => itemIndex !== index),
+    );
+  };
+
+  const handleSaveWaktuPilihan = async () => {
+    if (!selectedPetugasDetail) return;
+
+    setPetugasJadwalSaving(true);
+    setPetugasDetailError("");
+
+    try {
+      const result = (await sendJson(
+        `/api/petugas/${selectedPetugasDetail.petugas.id}/penugasan`,
+        "PUT",
+        {
+          waktu_pilihan: selectedWaktuPilihan.map((item) => ({
+            hari: item.hari,
+            jam: item.jam,
+          })),
+        },
+      )) as { data?: PetugasPenugasanDetail };
+      if (result.data) {
+        setSelectedPetugasDetail(result.data);
+        setSelectedWaktuPilihan(sortWaktuPilihan(result.data.waktu_pilihan));
+      }
+      setMessage("Pilihan hari dan jam petugas berhasil disimpan.");
+    } catch (error) {
+      setPetugasDetailError(
+        error instanceof Error
+          ? error.message
+          : "Gagal menyimpan pilihan hari dan jam.",
+      );
+    } finally {
+      setPetugasJadwalSaving(false);
+    }
   };
 
   return (
@@ -539,7 +712,7 @@ export default function DataManager({
                 disabled={submitting || draftJadwal.length === 0}
                 className="bg-blue-600 text-white rounded-xl px-3 py-2 text-[11px] font-black hover:bg-blue-700 disabled:bg-blue-300"
               >
-                Randomize & Simpan Draft
+                Randomize Semua Draft
               </button>
               <button
                 type="button"
@@ -586,16 +759,26 @@ export default function DataManager({
                     </td>
                     <td className="py-3 pr-4">
                       {item.status !== "batal" && (
-                        <div className="flex justify-end gap-2">
+                        <div className="flex flex-wrap justify-end gap-2">
                           {canRandomizeJadwal(item) ? (
-                            <button
-                              type="button"
-                              onClick={() => handleRandomizeJadwal(item.id)}
-                              disabled={submitting}
-                              className="text-blue-600 font-bold hover:text-blue-800 disabled:text-blue-300"
-                            >
-                              Randomize & Simpan
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleRandomizeJadwal(item.id)}
+                                disabled={submitting}
+                                className="text-blue-600 font-bold hover:text-blue-800 disabled:text-blue-300"
+                              >
+                                Randomize
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveJadwal(item.id)}
+                                disabled={submitting || !canSaveJadwal(item)}
+                                className="text-green-600 font-bold hover:text-green-800 disabled:text-green-300"
+                              >
+                                Simpan
+                              </button>
+                            </>
                           ) : (
                             <button
                               type="button"
@@ -605,6 +788,14 @@ export default function DataManager({
                               Tersimpan
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => downloadSingleJadwalExcel(item)}
+                            disabled={!canDownloadJadwal(item)}
+                            className="text-emerald-600 font-bold hover:text-emerald-800 disabled:text-emerald-300"
+                          >
+                            Excel
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleCancelJadwal(item.id)}
@@ -749,6 +940,107 @@ export default function DataManager({
                   <p className="mt-1 font-black text-gray-800">
                     {selectedPetugasDetail.petugas.no_hp || "-"}
                   </p>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-gray-100 p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-widest text-gray-500">
+                      Pilihan Hari dan Jam Randomize
+                    </h4>
+                    <p className="mt-1 text-[11px] font-bold text-gray-400">
+                      {selectedWaktuPilihan.length > 0
+                        ? `${selectedWaktuPilihan.length} pilihan`
+                        : "Bebas semua hari dan jam"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveWaktuPilihan}
+                    disabled={petugasDetailLoading || petugasJadwalSaving}
+                    className="rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-black text-white hover:bg-blue-700 disabled:bg-blue-300"
+                  >
+                    {petugasJadwalSaving ? "Menyimpan..." : "Simpan Pilihan"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_150px_auto] gap-2">
+                  <select
+                    value={waktuPilihanForm.hari}
+                    onChange={(event) =>
+                      setWaktuPilihanForm({
+                        ...waktuPilihanForm,
+                        hari: event.target.value,
+                      })
+                    }
+                    disabled={petugasDetailLoading || petugasJadwalSaving}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-800"
+                  >
+                    {dayOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="time"
+                    value={waktuPilihanForm.jam}
+                    onChange={(event) =>
+                      setWaktuPilihanForm({
+                        ...waktuPilihanForm,
+                        jam: event.target.value,
+                      })
+                    }
+                    disabled={petugasDetailLoading || petugasJadwalSaving}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddWaktuPilihan}
+                    disabled={
+                      petugasDetailLoading ||
+                      petugasJadwalSaving ||
+                      !waktuPilihanForm.jam
+                    }
+                    className="rounded-xl border border-blue-200 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50 disabled:border-gray-200 disabled:text-gray-300"
+                  >
+                    Tambah
+                  </button>
+                </div>
+
+                <div className="mt-3 max-h-52 overflow-y-auto rounded-xl border border-gray-100">
+                  {selectedWaktuPilihan.length > 0 ? (
+                    <div className="divide-y divide-gray-100">
+                      {selectedWaktuPilihan.map((option, index) => (
+                        <div
+                          key={`${option.hari}-${option.jam}`}
+                          className="flex items-center justify-between gap-4 px-3 py-3 text-xs"
+                        >
+                          <div>
+                            <p className="font-black text-gray-800">
+                              {getDayName(option.hari)}
+                            </p>
+                            <p className="mt-1 font-bold text-gray-400">
+                              {option.jam}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveWaktuPilihan(index)}
+                            disabled={petugasDetailLoading || petugasJadwalSaving}
+                            className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-[10px] font-black text-gray-500 hover:bg-gray-50 disabled:text-gray-300"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-6 text-center text-sm font-semibold text-gray-400">
+                      Bebas semua hari dan jam.
+                    </div>
+                  )}
                 </div>
               </div>
 

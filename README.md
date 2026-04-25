@@ -14,7 +14,11 @@ notifikasi WhatsApp. Backend data lokal memakai PostgreSQL, bukan Supabase.
   koordinator.
 - Setiap petugas yang tersimpan dari randomize dicatat di `penugasan_petugas`
   agar total penugasan bisa dihitung dan pembagian tetap merata.
+- Detail petugas bisa menyimpan pilihan hari dan jam. Jika pilihan ini kosong,
+  petugas bebas masuk semua jadwal; jika diisi, randomize hanya boleh memilih
+  petugas tersebut pada jadwal dengan hari dan jam yang cocok.
 - Export jadwal ke Excel dengan nama `Template_Jadwal_AI.xlsx`.
+- Setiap baris `Jadwal Terbaru` punya export Excel sendiri.
 - Seeder petugas dari `public/data/asisten_imam.csv`.
 - Aturan rotasi jadwal di level database: petugas yang sudah mendapat jadwal
   tidak bisa ditugaskan lagi sebelum semua petugas aktif mendapat giliran.
@@ -124,6 +128,8 @@ Tabel utama:
 - `jadwal_petugas`: detail daftar petugas untuk satu jadwal.
 - `penugasan_petugas`: histori petugas yang sudah tersimpan sebagai penugasan.
 - `petugas_penugasan_count`: view count penugasan aktif per petugas.
+- `petugas_jadwal_waktu_pilihan`: batasan opsional hari dan jam randomize
+  untuk petugas tertentu.
 
 Migration:
 
@@ -142,19 +148,27 @@ histori/count ada di trigger `jadwal_petugas_sync_penugasan` dan
 `jadwal_sync_penugasan`. Jika petugas A sudah bertugas pada jadwal X, petugas A
 tidak bisa masuk lagi pada jadwal Y sebelum semua petugas aktif lain mendapat
 giliran. Randomize juga memprioritaskan petugas dengan `total_penugasan`
-paling kecil. Jadwal hanya bisa di-randomize saat masih `draft`; setelah
-tersimpan sebagai `terjadwal`, randomize ulang ditolak.
+paling kecil. Randomize hanya mengisi petugas/koordinator pada jadwal `draft`.
+Tombol `Simpan` mengunci jadwal menjadi `terjadwal` dan baru saat itu
+penugasan masuk ke count. Setelah tersimpan sebagai `terjadwal`, randomize
+ulang ditolak.
+Pembatasan jadwal per petugas disimpan di `petugas_jadwal_waktu_pilihan`
+berdasarkan nama hari dan jam. Jika petugas tidak punya baris pilihan, petugas
+boleh masuk ke jadwal mana pun yang lolos rotasi. Jika ada pilihan, API
+randomize dan trigger database hanya mengizinkan petugas masuk ke jadwal dengan
+hari dan jam yang cocok.
 
 Flow jadwal di UI:
 
 1. Buka tab `Data Master`.
 2. Isi `Tanggal`, `Jam`, dan `Jumlah petugas`.
 3. Klik `Buat Jadwal`.
-4. Pada `Jadwal Terbaru`, klik `Randomize & Simpan` per baris atau
-   `Randomize & Simpan Draft`.
-5. Jadwal yang sudah tersimpan akan menampilkan aksi `Tersimpan`, bukan tombol
+4. Pada `Jadwal Terbaru`, klik `Randomize` untuk mengacak petugas dan
+   koordinator.
+5. Klik `Simpan` untuk mengunci hasil randomize dan menghitung penugasan.
+6. Jadwal yang sudah tersimpan akan menampilkan aksi `Tersimpan`, bukan tombol
    randomize.
-6. Klik `Download Excel` untuk menghasilkan `Template_Jadwal_AI.xlsx`.
+7. Klik `Excel` per jadwal atau `Download Excel` untuk semua jadwal.
 
 ## Verification
 
