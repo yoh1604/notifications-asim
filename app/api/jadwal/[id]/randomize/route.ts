@@ -32,6 +32,7 @@ type PetugasRow = {
   id: number;
   nama: string;
   no_hp: string | null;
+  total_penugasan: number;
 };
 
 type KoordinatorRow = {
@@ -56,7 +57,8 @@ const selectById = `
           'nama', p.nama,
           'asisten_imam', p.nama,
           'no_hp', p.no_hp,
-          'urutan', jp.urutan
+          'urutan', jp.urutan,
+          'total_penugasan', COALESCE(pc.total_penugasan, 0)
         )
         ORDER BY jp.urutan ASC
       ) FILTER (WHERE jp.id IS NOT NULL),
@@ -66,6 +68,7 @@ const selectById = `
   LEFT JOIN koordinator k ON k.id = j.koordinator_id
   LEFT JOIN jadwal_petugas jp ON jp.jadwal_id = j.id
   LEFT JOIN petugas p ON p.id = jp.petugas_id
+  LEFT JOIN petugas_penugasan_count pc ON pc.petugas_id = p.id
   WHERE j.id = $1
   GROUP BY j.id, k.id
 `;
@@ -86,23 +89,36 @@ export async function POST(_request: Request, context: RouteContext) {
             jumlah_petugas
           FROM jadwal
           WHERE id = $1
-            AND status <> 'batal'
+            AND status = 'draft'
           FOR UPDATE
         `,
         [jadwalId],
       );
       const target = targetResult.rows[0];
       if (!target) {
-        throw new Error("Jadwal tidak ditemukan atau sudah dibatalkan.");
+        throw new Error(
+          "Jadwal tidak ditemukan, sudah dibatalkan, atau sudah tersimpan.",
+        );
       }
 
       const petugasResult = await client.query<PetugasRow>(
         `
-          SELECT p.id, p.nama, p.no_hp
+          SELECT
+            p.id,
+            p.nama,
+            p.no_hp,
+            pc.total_penugasan
           FROM petugas p
+          LEFT JOIN LATERAL (
+            SELECT count(*)::integer AS total_penugasan
+            FROM penugasan_petugas pp
+            WHERE pp.petugas_id = p.id
+              AND pp.status <> 'batal'
+              AND pp.jadwal_id <> $3::bigint
+          ) pc ON true
           WHERE p.aktif = true
             AND can_assign_petugas(p.id, $1::date, $2::time, $3::bigint)
-          ORDER BY random()
+          ORDER BY pc.total_penugasan ASC, random()
           LIMIT $4
         `,
         [target.tanggal, target.jam, target.id, target.jumlah_petugas],
@@ -117,14 +133,26 @@ export async function POST(_request: Request, context: RouteContext) {
       const pickedPetugasIds = petugasResult.rows.map((item) => item.id);
       const coordinatorResult = await client.query<PetugasRow>(
         `
-          SELECT p.id, p.nama, p.no_hp
+          SELECT
+            p.id,
+            p.nama,
+            p.no_hp,
+            pc.total_penugasan
           FROM petugas p
+          LEFT JOIN LATERAL (
+            SELECT count(*)::integer AS total_penugasan
+            FROM penugasan_petugas pp
+            WHERE pp.petugas_id = p.id
+              AND pp.status <> 'batal'
+              AND pp.jadwal_id <> $2::bigint
+          ) pc ON true
           WHERE p.aktif = true
           ORDER BY CASE WHEN p.id = ANY($1::integer[]) THEN 1 ELSE 0 END,
+                   pc.total_penugasan ASC,
                    random()
           LIMIT 1
         `,
-        [pickedPetugasIds],
+        [pickedPetugasIds, target.id],
       );
       const coordinatorPetugas = coordinatorResult.rows[0];
       if (!coordinatorPetugas) {

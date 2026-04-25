@@ -6,6 +6,7 @@ export type Petugas = {
   lingkungan: string | null;
   no_hp: string | null;
   aktif: boolean;
+  total_penugasan: number;
   eligible?: boolean;
 };
 
@@ -23,6 +24,7 @@ export type JadwalPetugas = {
   asisten_imam: string;
   no_hp: string | null;
   urutan: number;
+  total_penugasan: number;
 };
 
 export type Jadwal = {

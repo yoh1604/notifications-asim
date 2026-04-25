@@ -12,6 +12,7 @@ type PetugasRow = {
   lingkungan: string | null;
   no_hp: string | null;
   aktif: boolean;
+  total_penugasan: number;
   eligible?: boolean;
 };
 
@@ -25,17 +26,23 @@ export async function GET(request: Request) {
       const result = await query<PetugasRow>(
         `
           SELECT
-            id,
-            nama,
-            nama AS asisten_imam,
-            wilayah,
-            lingkungan,
-            no_hp,
-            aktif,
-            can_assign_petugas(id, $1::date, $2::time) AS eligible
-          FROM petugas
-          WHERE aktif = true
-          ORDER BY wilayah ASC, lingkungan ASC NULLS LAST, nama ASC
+            p.id,
+            p.nama,
+            p.nama AS asisten_imam,
+            p.wilayah,
+            p.lingkungan,
+            p.no_hp,
+            p.aktif,
+            COALESCE(pc.total_penugasan, 0)::integer AS total_penugasan,
+            can_assign_petugas(p.id, $1::date, $2::time) AS eligible
+          FROM petugas p
+          LEFT JOIN petugas_penugasan_count pc ON pc.petugas_id = p.id
+          WHERE p.aktif = true
+          ORDER BY
+            COALESCE(pc.total_penugasan, 0) ASC,
+            p.wilayah ASC,
+            p.lingkungan ASC NULLS LAST,
+            p.nama ASC
         `,
         [tanggal, jam],
       );
@@ -45,15 +52,17 @@ export async function GET(request: Request) {
 
     const result = await query<PetugasRow>(`
       SELECT
-        id,
-        nama,
-        nama AS asisten_imam,
-        wilayah,
-        lingkungan,
-        no_hp,
-        aktif
-      FROM petugas
-      ORDER BY wilayah ASC, lingkungan ASC NULLS LAST, nama ASC
+        p.id,
+        p.nama,
+        p.nama AS asisten_imam,
+        p.wilayah,
+        p.lingkungan,
+        p.no_hp,
+        p.aktif,
+        COALESCE(pc.total_penugasan, 0)::integer AS total_penugasan
+      FROM petugas p
+      LEFT JOIN petugas_penugasan_count pc ON pc.petugas_id = p.id
+      ORDER BY p.wilayah ASC, p.lingkungan ASC NULLS LAST, p.nama ASC
     `);
 
     return NextResponse.json({ data: result.rows });
@@ -83,7 +92,8 @@ export async function POST(request: Request) {
           wilayah,
           lingkungan,
           no_hp,
-          aktif
+          aktif,
+          0::integer AS total_penugasan
       `,
       [nama.toUpperCase(), wilayah || "Tanpa Wilayah", lingkungan, noHp],
     );

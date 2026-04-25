@@ -16,6 +16,7 @@ type PetugasRow = {
   lingkungan: string | null;
   no_hp: string | null;
   aktif: boolean;
+  total_penugasan: number;
 };
 
 export async function PATCH(request: Request, context: RouteContext) {
@@ -40,22 +41,28 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const result = await query<PetugasRow>(
       `
-        UPDATE petugas
-        SET
-          nama = COALESCE($2, nama),
-          wilayah = COALESCE($3, wilayah),
-          lingkungan = CASE WHEN $4::boolean THEN $5 ELSE lingkungan END,
-          no_hp = CASE WHEN $6::boolean THEN $7 ELSE no_hp END,
-          aktif = COALESCE($8, aktif)
-        WHERE id = $1
-        RETURNING
-          id,
-          nama,
-          nama AS asisten_imam,
-          wilayah,
-          lingkungan,
-          no_hp,
-          aktif
+        WITH updated AS (
+          UPDATE petugas
+          SET
+            nama = COALESCE($2, nama),
+            wilayah = COALESCE($3, wilayah),
+            lingkungan = CASE WHEN $4::boolean THEN $5 ELSE lingkungan END,
+            no_hp = CASE WHEN $6::boolean THEN $7 ELSE no_hp END,
+            aktif = COALESCE($8, aktif)
+          WHERE id = $1
+          RETURNING *
+        )
+        SELECT
+          u.id,
+          u.nama,
+          u.nama AS asisten_imam,
+          u.wilayah,
+          u.lingkungan,
+          u.no_hp,
+          u.aktif,
+          COALESCE(pc.total_penugasan, 0)::integer AS total_penugasan
+        FROM updated u
+        LEFT JOIN petugas_penugasan_count pc ON pc.petugas_id = u.id
       `,
       [
         Number(id),
@@ -83,17 +90,23 @@ export async function DELETE(_request: Request, context: RouteContext) {
 
     const result = await query<PetugasRow>(
       `
-        UPDATE petugas
-        SET aktif = false
-        WHERE id = $1
-        RETURNING
-          id,
-          nama,
-          nama AS asisten_imam,
-          wilayah,
-          lingkungan,
-          no_hp,
-          aktif
+        WITH updated AS (
+          UPDATE petugas
+          SET aktif = false
+          WHERE id = $1
+          RETURNING *
+        )
+        SELECT
+          u.id,
+          u.nama,
+          u.nama AS asisten_imam,
+          u.wilayah,
+          u.lingkungan,
+          u.no_hp,
+          u.aktif,
+          COALESCE(pc.total_penugasan, 0)::integer AS total_penugasan
+        FROM updated u
+        LEFT JOIN petugas_penugasan_count pc ON pc.petugas_id = u.id
       `,
       [Number(id)],
     );

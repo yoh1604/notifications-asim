@@ -13,6 +13,18 @@ type DataManagerProps = {
 
 type ApiPayload = Record<string, string | number | boolean | null>;
 
+type PetugasPenugasanDetail = {
+  petugas: Petugas;
+  penugasan: Array<{
+    id: number;
+    jadwal_id: number;
+    tanggal: string;
+    jam: string;
+    status: string;
+    nama_koordinator: string | null;
+  }>;
+};
+
 const emptyPetugasForm = {
   nama: "",
   wilayah: "",
@@ -47,8 +59,13 @@ async function sendJson(url: string, method: string, payload?: ApiPayload) {
   return data;
 }
 
+function formatPetugasWithCount(petugas: Jadwal["petugas"][number]) {
+  const name = petugas.asisten_imam || petugas.nama;
+  return `${name} (${petugas.total_penugasan}x)`;
+}
+
 function getPetugasNames(item: Jadwal) {
-  return item.petugas.map((petugas) => petugas.asisten_imam || petugas.nama);
+  return item.petugas.map(formatPetugasWithCount);
 }
 
 function formatPetugasSummary(item: Jadwal) {
@@ -60,6 +77,15 @@ function formatPetugasSummary(item: Jadwal) {
   return names.length > 3
     ? `${visibleNames} +${names.length - 3}`
     : visibleNames;
+}
+
+function canRandomizeJadwal(item: Jadwal) {
+  return item.status === "draft";
+}
+
+function formatStatus(item: Jadwal) {
+  if (item.status === "terjadwal") return "tersimpan";
+  return item.status;
 }
 
 function downloadJadwalExcel(jadwal: Jadwal[]) {
@@ -104,6 +130,10 @@ export default function DataManager({
   const [jadwalForm, setJadwalForm] = useState(emptyJadwalForm);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [selectedPetugasDetail, setSelectedPetugasDetail] =
+    useState<PetugasPenugasanDetail | null>(null);
+  const [petugasDetailLoading, setPetugasDetailLoading] = useState(false);
+  const [petugasDetailError, setPetugasDetailError] = useState("");
 
   const activePetugas = useMemo(
     () => petugas.filter((item) => item.aktif),
@@ -113,13 +143,19 @@ export default function DataManager({
     () => koordinator.filter((item) => item.aktif),
     [koordinator],
   );
-  const draftJadwal = useMemo(
+  const sortedPetugasByPenugasan = useMemo(
     () =>
-      jadwal.filter(
-        (item) =>
-          item.status !== "batal" &&
-          item.assigned_count < item.jumlah_petugas,
-      ),
+      [...petugas].sort((a, b) => {
+        const countDiff = a.total_penugasan - b.total_penugasan;
+        if (countDiff !== 0) return countDiff;
+        return (a.asisten_imam || a.nama).localeCompare(
+          b.asisten_imam || b.nama,
+        );
+      }),
+    [petugas],
+  );
+  const draftJadwal = useMemo(
+    () => jadwal.filter((item) => canRandomizeJadwal(item)),
     [jadwal],
   );
 
@@ -201,7 +237,7 @@ export default function DataManager({
 
     try {
       await sendJson(`/api/jadwal/${id}/randomize`, "POST");
-      setMessage("Petugas dan koordinator berhasil diacak.");
+      setMessage("Petugas, koordinator, dan count penugasan berhasil disimpan.");
       await onRefresh();
     } catch (error) {
       setMessage(
@@ -222,7 +258,7 @@ export default function DataManager({
       for (const item of draftJadwal) {
         await sendJson(`/api/jadwal/${item.id}/randomize`, "POST");
       }
-      setMessage(`${draftJadwal.length} jadwal berhasil diacak.`);
+      setMessage(`${draftJadwal.length} jadwal berhasil diacak dan disimpan.`);
       await onRefresh();
     } catch (error) {
       setMessage(
@@ -258,6 +294,36 @@ export default function DataManager({
       nama: selected?.asisten_imam || "",
       no_hp: selected?.no_hp || "",
     });
+  };
+
+  const handleOpenPetugasDetail = async (item: Petugas) => {
+    setSelectedPetugasDetail({ petugas: item, penugasan: [] });
+    setPetugasDetailLoading(true);
+    setPetugasDetailError("");
+
+    try {
+      const result = (await sendJson(
+        `/api/petugas/${item.id}/penugasan`,
+        "GET",
+      )) as { data?: PetugasPenugasanDetail };
+      if (result.data) {
+        setSelectedPetugasDetail(result.data);
+      }
+    } catch (error) {
+      setPetugasDetailError(
+        error instanceof Error
+          ? error.message
+          : "Gagal memuat detail penugasan.",
+      );
+    } finally {
+      setPetugasDetailLoading(false);
+    }
+  };
+
+  const handleClosePetugasDetail = () => {
+    setSelectedPetugasDetail(null);
+    setPetugasDetailLoading(false);
+    setPetugasDetailError("");
   };
 
   return (
@@ -473,7 +539,7 @@ export default function DataManager({
                 disabled={submitting || draftJadwal.length === 0}
                 className="bg-blue-600 text-white rounded-xl px-3 py-2 text-[11px] font-black hover:bg-blue-700 disabled:bg-blue-300"
               >
-                Randomize Jadwal Draft
+                Randomize & Simpan Draft
               </button>
               <button
                 type="button"
@@ -516,19 +582,29 @@ export default function DataManager({
                       {item.nama_koordinator || "-"}
                     </td>
                     <td className="py-3 pr-4 uppercase text-[10px] font-black">
-                      {item.status}
+                      {formatStatus(item)}
                     </td>
                     <td className="py-3 pr-4">
                       {item.status !== "batal" && (
                         <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleRandomizeJadwal(item.id)}
-                            disabled={submitting}
-                            className="text-blue-600 font-bold hover:text-blue-800 disabled:text-blue-300"
-                          >
-                            Randomize Petugas & Koord.
-                          </button>
+                          {canRandomizeJadwal(item) ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRandomizeJadwal(item.id)}
+                              disabled={submitting}
+                              className="text-blue-600 font-bold hover:text-blue-800 disabled:text-blue-300"
+                            >
+                              Randomize & Simpan
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className="text-gray-400 font-bold cursor-not-allowed"
+                            >
+                              Tersimpan
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleCancelJadwal(item.id)}
@@ -554,6 +630,190 @@ export default function DataManager({
           </div>
         </div>
       </div>
+
+      <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+          <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest">
+            Penugasan Petugas
+          </h3>
+          <span className="text-[11px] font-bold text-gray-400">
+            {petugas.length} petugas
+          </span>
+        </div>
+        <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+          <table className="min-w-full text-xs">
+            <thead className="sticky top-0 bg-white">
+              <tr className="text-left text-gray-400 border-b">
+                <th className="py-2 pr-4">Nama Petugas</th>
+                <th className="py-2 pr-4">Wilayah</th>
+                <th className="py-2 pr-4">Lingkungan</th>
+                <th className="py-2 pr-4">Status</th>
+                <th className="py-2 pr-4 text-right">Penugasan</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {sortedPetugasByPenugasan.map((item) => (
+                <tr
+                  key={item.id}
+                  className="text-gray-700 hover:bg-blue-50/60"
+                >
+                  <td className="py-3 pr-4 font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPetugasDetail(item)}
+                      className="text-left font-semibold text-gray-800 hover:text-blue-700"
+                    >
+                      {item.asisten_imam || item.nama}
+                    </button>
+                  </td>
+                  <td className="py-3 pr-4">{item.wilayah || "-"}</td>
+                  <td className="py-3 pr-4">{item.lingkungan || "-"}</td>
+                  <td className="py-3 pr-4">
+                    <span
+                      className={
+                        item.aktif
+                          ? "font-black text-green-700"
+                          : "font-black text-gray-400"
+                      }
+                    >
+                      {item.aktif ? "Aktif" : "Nonaktif"}
+                    </span>
+                  </td>
+                  <td className="py-3 pr-4 text-right font-black text-blue-700">
+                    {item.total_penugasan}x
+                  </td>
+                </tr>
+              ))}
+              {sortedPetugasByPenugasan.length === 0 && (
+                <tr>
+                  <td className="py-8 text-center text-gray-400" colSpan={5}>
+                    Belum ada petugas.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {selectedPetugasDetail && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-widest text-gray-400">
+                  Detail Petugas
+                </p>
+                <h3 className="mt-1 text-lg font-black text-gray-900">
+                  {selectedPetugasDetail.petugas.asisten_imam ||
+                    selectedPetugasDetail.petugas.nama}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={handleClosePetugasDetail}
+                className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-black text-gray-600 hover:bg-gray-50"
+              >
+                Tutup
+              </button>
+            </div>
+
+            <div className="max-h-[calc(90vh-78px)] overflow-y-auto px-5 py-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                <div className="rounded-xl bg-blue-50 p-3">
+                  <p className="font-bold text-blue-500 uppercase">Penugasan</p>
+                  <p className="mt-1 text-2xl font-black text-blue-800">
+                    {selectedPetugasDetail.petugas.total_penugasan}x
+                  </p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <p className="font-bold text-gray-400 uppercase">Wilayah</p>
+                  <p className="mt-1 font-black text-gray-800">
+                    {selectedPetugasDetail.petugas.wilayah || "-"}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <p className="font-bold text-gray-400 uppercase">
+                    Lingkungan
+                  </p>
+                  <p className="mt-1 font-black text-gray-800">
+                    {selectedPetugasDetail.petugas.lingkungan || "-"}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <p className="font-bold text-gray-400 uppercase">No HP</p>
+                  <p className="mt-1 font-black text-gray-800">
+                    {selectedPetugasDetail.petugas.no_hp || "-"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <h4 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">
+                  Riwayat Penugasan
+                </h4>
+
+                {petugasDetailError && (
+                  <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                    {petugasDetailError}
+                  </div>
+                )}
+
+                {petugasDetailLoading && (
+                  <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-6 text-center text-sm font-semibold text-gray-500">
+                    Memuat detail penugasan...
+                  </div>
+                )}
+
+                {!petugasDetailLoading && !petugasDetailError && (
+                  <div className="overflow-x-auto rounded-xl border border-gray-100">
+                    <table className="min-w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr className="text-left text-gray-400 border-b border-gray-100">
+                          <th className="py-2 px-3">Tanggal</th>
+                          <th className="py-2 px-3">Jam</th>
+                          <th className="py-2 px-3">Koordinator</th>
+                          <th className="py-2 px-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {selectedPetugasDetail.penugasan.map((item) => (
+                          <tr key={item.id} className="text-gray-700">
+                            <td className="py-3 px-3 font-semibold">
+                              {item.tanggal}
+                            </td>
+                            <td className="py-3 px-3">{item.jam}</td>
+                            <td className="py-3 px-3">
+                              {item.nama_koordinator || "-"}
+                            </td>
+                            <td className="py-3 px-3 uppercase text-[10px] font-black">
+                              {item.status}
+                            </td>
+                          </tr>
+                        ))}
+                        {selectedPetugasDetail.penugasan.length === 0 && (
+                          <tr>
+                            <td
+                              className="py-8 text-center text-gray-400"
+                              colSpan={4}
+                            >
+                              Belum ada riwayat penugasan.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

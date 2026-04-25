@@ -20,6 +20,7 @@ type JadwalRow = {
     asisten_imam: string;
     no_hp: string | null;
     urutan: number;
+    total_penugasan: number;
   }>;
 };
 
@@ -41,7 +42,8 @@ const jadwalSelect = `
           'nama', p.nama,
           'asisten_imam', p.nama,
           'no_hp', p.no_hp,
-          'urutan', jp.urutan
+          'urutan', jp.urutan,
+          'total_penugasan', COALESCE(pc.total_penugasan, 0)
         )
         ORDER BY jp.urutan ASC
       ) FILTER (WHERE jp.id IS NOT NULL),
@@ -51,6 +53,7 @@ const jadwalSelect = `
   LEFT JOIN koordinator k ON k.id = j.koordinator_id
   LEFT JOIN jadwal_petugas jp ON jp.jadwal_id = j.id
   LEFT JOIN petugas p ON p.id = jp.petugas_id
+  LEFT JOIN petugas_penugasan_count pc ON pc.petugas_id = p.id
 `;
 
 const jadwalGroupOrder = `
