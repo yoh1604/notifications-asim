@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
-import Papa from "papaparse"; // Import PapaParse untuk baca CSV
+import DataManager from "./components/DataManager";
+import type { Jadwal, Koordinator, Petugas } from "@/lib/types";
 
 // --- HELPER UNTUK KIRIM WA ---
 const sendWA = async (number: string, message: string) => {
@@ -121,15 +123,19 @@ const exportConverterToExcel = (converterData: any[]) => {
 };
 
 export default function UnifiedPage() {
-  const [allAsimLocal, setAllAsimLocal] = useState<any[]>([]);
-  const [groupedAsim, setGroupedAsim] = useState<Record<string, any[]>>({});
+  const [allAsimLocal, setAllAsimLocal] = useState<Petugas[]>([]);
+  const [groupedAsim, setGroupedAsim] = useState<Record<string, Petugas[]>>({});
+  const [masterKoordinator, setMasterKoordinator] = useState<Koordinator[]>([]);
+  const [jadwalList, setJadwalList] = useState<Jadwal[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [passInput, setPassInput] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"batch" | "converter">("batch");
+  const [activeTab, setActiveTab] = useState<
+    "batch" | "converter" | "data"
+  >("batch");
   const [converterData, setConverterData] = useState<any[]>([]);
   const [copyNotification, setCopyNotification] = useState<{
     id: string;
@@ -140,36 +146,56 @@ export default function UnifiedPage() {
   const [isSendingConverter, setIsSendingConverter] = useState(false);
 
   useEffect(() => {
-    muatDataCSV();
+    muatDataDatabase();
   }, []);
 
-  // 1. FUNGSI MEMBACA CSV LOKAL
-  const muatDataCSV = () => {
-    Papa.parse("/data/asisten_imam.csv", {
-      download: true,
-      header: true,
-      complete: (results) => {
-        const data = results.data;
-        setAllAsimLocal(data);
-
-        const grouped = data.reduce(
-          (acc: Record<string, any[]>, item: any) => {
-            const key = item.wilayah || "Tanpa Wilayah";
-            if (!acc[key]) acc[key] = [];
-            acc[key].push(item);
-            return acc;
-          },
-          {} as Record<string, any[]>,
-        ); // <--- Tambahkan tipe data di sini
-
-        setGroupedAsim(grouped);
-        setLoading(false);
+  const groupPetugasByWilayah = (data: Petugas[]) => {
+    return data.reduce(
+      (acc: Record<string, Petugas[]>, item) => {
+        const key = item.wilayah || "Tanpa Wilayah";
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(item);
+        return acc;
       },
-      error: (err) => {
-        console.error("Gagal memuat CSV:", err);
-        setLoading(false);
-      },
-    });
+      {} as Record<string, Petugas[]>,
+    );
+  };
+
+  const muatDataDatabase = async () => {
+    setLoading(true);
+    try {
+      const [petugasResponse, koordinatorResponse, jadwalResponse] =
+        await Promise.all([
+          fetch("/api/petugas"),
+          fetch("/api/koordinator"),
+          fetch("/api/jadwal"),
+        ]);
+
+      if (!petugasResponse.ok) throw new Error("Gagal memuat petugas.");
+      if (!koordinatorResponse.ok) throw new Error("Gagal memuat koordinator.");
+      if (!jadwalResponse.ok) throw new Error("Gagal memuat jadwal.");
+
+      const [petugasResult, koordinatorResult, jadwalResult] =
+        await Promise.all([
+          petugasResponse.json(),
+          koordinatorResponse.json(),
+          jadwalResponse.json(),
+        ]);
+
+      const petugasData = (petugasResult.data || []) as Petugas[];
+      setAllAsimLocal(petugasData);
+      setGroupedAsim(groupPetugasByWilayah(petugasData));
+      setMasterKoordinator((koordinatorResult.data || []) as Koordinator[]);
+      setJadwalList((jadwalResult.data || []) as Jadwal[]);
+    } catch (err) {
+      console.error("Gagal memuat database:", err);
+      setLogs((prev) => [
+        ...prev,
+        "❌ Gagal memuat database PostgreSQL. Pastikan Docker DB berjalan dan migration sudah dijalankan.",
+      ]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const isSmartMatch = (dbName: string, excelName: string) => {
@@ -267,12 +293,12 @@ export default function UnifiedPage() {
             .includes(String(a.asisten_imam).toUpperCase().trim()),
         );
 
-        let laporanUntukPengawas: string[] = [];
-        let setKoordinatorUnik = new Set<string>();
+        const laporanUntukPengawas: string[] = [];
+        const setKoordinatorUnik = new Set<string>();
 
         // OBJEK REKAP UNTUK KOORDINATOR
         // Struktur: { "NAMA": { berhasil: [], gagal: [], no_hp: "" } }
-        let rekapPerKoordinator: Record<
+        const rekapPerKoordinator: Record<
           string,
           { berhasil: string[]; gagal: string[]; no_hp: string }
         > = {};
@@ -369,7 +395,7 @@ ${linkChat}
 Untuk mendapatkan asisten imam pengganti atau bertukar tugas. Bila 15 menit sebelum ibadat belum hadir maka akan digantikan personil AI lain yang telah siap menggantikan.
 
 Terima kasih. Tuhan memberkati. 🙏 `;
-          const resP = await sendWA(p.no_hp, msgPetugas);
+          const resP = await sendWA(p.no_hp || "", msgPetugas);
           const infoBaris = `${row.Nama_Petugas} (${row.Jam})`;
 
           daftarKoordData.forEach((k: any) => {
@@ -431,7 +457,7 @@ Terima kasih. Tuhan memberkati. 🙏 `;
 
           msgKoord += `\n\nTerima kasih. 🙏`;
 
-          await sendWA(data.no_hp, msgKoord);
+          await sendWA(data.no_hp || "", msgKoord);
           await new Promise((res) => setTimeout(res, 10000)); // Jeda antar koordinator
         }
 
@@ -448,7 +474,7 @@ ${laporanUntukPengawas.join("\n")}
 ✅ Seluruh proses telah selesai.`;
 
           for (const [index, pengawas] of listPengawas.entries()) {
-            await sendWA(pengawas.no_hp, msgRekap);
+            await sendWA(pengawas.no_hp || "", msgRekap);
             if (index < listPengawas.length - 1)
               await new Promise((res) => setTimeout(res, 10000));
           }
@@ -712,7 +738,7 @@ ${converterData
             `📤 ${progress} Mengirim ke Pengawas: ${pengawas.asisten_imam}...`,
           ]);
 
-          const res = await sendWA(pengawas.no_hp, msgPengawas);
+          const res = await sendWA(pengawas.no_hp || "", msgPengawas);
 
           if (res.status) {
             setLogs((prev) => [
@@ -776,7 +802,7 @@ ${converterData
 
 Terima kasih. 🙏`;
 
-          const res = await sendWA(koordinator.no_hp, msgKoordinator);
+          const res = await sendWA(koordinator.no_hp || "", msgKoordinator);
 
           if (res.status) {
             setLogs((prev) => [
@@ -823,7 +849,7 @@ Terima kasih. 🙏`;
   };
 
   if (loading)
-    return <div className="p-10 text-center">Memuat Database CSV Lokal...</div>;
+    return <div className="p-10 text-center">Memuat Database PostgreSQL...</div>;
   return (
     <main className="p-10 bg-white min-h-screen">
       {/* HEADER SECTION */}
@@ -870,6 +896,19 @@ Terima kasih. 🙏`;
           }`}
         >
           🔗 Converter Link WA
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab("data");
+            setIsAdmin(false);
+          }}
+          className={`px-6 py-2 rounded-lg font-bold text-sm uppercase tracking-widest transition-all ${
+            activeTab === "data"
+              ? "bg-purple-600 text-white shadow-md"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+        >
+          🗄️ Data Master
         </button>
       </div>
 
@@ -1236,6 +1275,17 @@ Terima kasih. 🙏`;
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === "data" && (
+        <div className="mb-8">
+          <DataManager
+            petugas={allAsimLocal}
+            koordinator={masterKoordinator}
+            jadwal={jadwalList}
+            onRefresh={muatDataDatabase}
+          />
         </div>
       )}
 
