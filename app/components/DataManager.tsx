@@ -89,6 +89,12 @@ async function sendJson(url: string, method: string, payload?: ApiPayload) {
   return data;
 }
 
+function formatTanggalDdMmYyyy(tanggal: string): string {
+  if (!tanggal) return "-";
+  const [year, month, day] = tanggal.split("-");
+  return `${day}-${month}-${year}`;
+}
+
 function formatPetugasWithCount(petugas: Jadwal["petugas"][number]) {
   const name = petugas.asisten_imam || petugas.nama;
   return `${name} (${petugas.total_penugasan}x)`;
@@ -123,7 +129,7 @@ function buildJadwalExportData(jadwal: Jadwal[]) {
     .filter((item) => item.status !== "batal" && item.petugas.length > 0)
     .flatMap((item) =>
       item.petugas.map((petugas) => ({
-        Tanggal: item.tanggal,
+        Tanggal: formatTanggalDdMmYyyy(item.tanggal),
         Jam: item.jam || "",
         Nama_Petugas: petugas.asisten_imam || petugas.nama,
         Nama_Koordinator: item.nama_koordinator || "",
@@ -161,7 +167,8 @@ function downloadJadwalExcel(jadwal: Jadwal[]) {
 
 function downloadSingleJadwalExcel(item: Jadwal) {
   const jam = item.jam.replace(/[^0-9]/g, "") || "jadwal";
-  const fileName = `Template_Jadwal_AI_${item.tanggal}_${jam}.xlsx`;
+  const tanggalFormatted = formatTanggalDdMmYyyy(item.tanggal);
+  const fileName = `Template_Jadwal_AI_${tanggalFormatted}_${jam}.xlsx`;
   const exportData = buildJadwalExportData([item]);
   writeJadwalExcel(exportData, fileName);
 }
@@ -501,7 +508,7 @@ export default function DataManager({
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <form
           onSubmit={handleCreatePetugas}
           className="bg-white border border-blue-100 rounded-2xl p-5 shadow-sm"
@@ -556,7 +563,7 @@ export default function DataManager({
           </button>
         </form>
 
-        <form
+        {/* <form
           onSubmit={handleCreateKoordinator}
           className="bg-white border border-purple-100 rounded-2xl p-5 shadow-sm"
         >
@@ -608,7 +615,7 @@ export default function DataManager({
           >
             Simpan Koordinator
           </button>
-        </form>
+        </form> */}
 
         <form
           onSubmit={handleCreateJadwal}
@@ -740,7 +747,7 @@ export default function DataManager({
               <tbody className="divide-y divide-gray-100">
                 {jadwal.map((item) => (
                   <tr key={item.id} className="text-gray-700">
-                    <td className="py-3 pr-4 font-semibold">{item.tanggal}</td>
+                    <td className="py-3 pr-4 font-semibold">{formatTanggalDdMmYyyy(item.tanggal)}</td>
                     <td className="py-3 pr-4">{item.jam || "-"}</td>
                     <td className="py-3 pr-4">
                       {item.assigned_count}/{item.jumlah_petugas}
@@ -1076,7 +1083,7 @@ export default function DataManager({
                         {selectedPetugasDetail.penugasan.map((item) => (
                           <tr key={item.id} className="text-gray-700">
                             <td className="py-3 px-3 font-semibold">
-                              {item.tanggal}
+                              {formatTanggalDdMmYyyy(item.tanggal)}
                             </td>
                             <td className="py-3 px-3">{item.jam}</td>
                             <td className="py-3 px-3">

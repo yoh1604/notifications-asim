@@ -336,7 +336,6 @@ export default function UnifiedPage() {
             "IGNATIUS FEBIANTO KURNIAWAN",
             "YOHANES DWI PRASETYO DARMAWAN",
           ]
-            // ["ADMIN 1", "ADMIN 2"]
             .includes(String(a.asisten_imam).toUpperCase().trim()),
         );
 
@@ -700,8 +699,6 @@ Terima kasih. Tuhan memberkati. 🙏`;
             "AGUSTINUS WAHYU SULISTYO",
             "IGNATIUS FEBIANTO KURNIAWAN",
             "YOHANES DWI PRASETYO DARMAWAN",
-            // "ADMIN 1",
-            // "ADMIN 2",
           ].includes(String(a.asisten_imam).toUpperCase().trim()),
         );
         setPengawasConverter(listPengawas);
@@ -1290,8 +1287,7 @@ Terima kasih. 🙏`;
 
             {converterData.length === 0 && (
               <div className="mt-8 border-2 border-dashed border-gray-200 rounded-2xl flex items-center justify-center p-10 text-gray-400 italic text-sm">
-                Belum ada data converter yang diproses. Silahkan upload file
-                jadwal.
+                Belum ada data converter yang diproses. Silahkan upload file jadwal.
               </div>
             )}
 
