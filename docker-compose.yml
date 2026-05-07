@@ -19,6 +19,7 @@ services:
       - ./db/migrations/008_separate_randomize_and_save.sql:/docker-entrypoint-initdb.d/008_separate_randomize_and_save.sql:ro
       - ./db/migrations/009_petugas_jadwal_waktu_pilihan.sql:/docker-entrypoint-initdb.d/009_petugas_jadwal_waktu_pilihan.sql:ro
       - ./db/seeds/001_seed_petugas_from_csv.sql:/docker-entrypoint-initdb.d/010_seed_petugas_from_csv.sql:ro
+      - ./db/migrations/011_add_attendance_status.sql:/docker-entrypoint-initdb.d/011_add_attendance_status.sql:ro
       - ./public/data/asisten_imam.csv:/docker-entrypoint-initdb.d/asisten_imam.csv:ro
     healthcheck:
       test:
