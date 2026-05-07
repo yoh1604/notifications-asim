@@ -101,7 +101,7 @@ export async function POST(_request: Request, context: RouteContext) {
         );
       }
 
-      const petugasResult = await client.query<PetugasRow>(
+      let petugasResult = await client.query<PetugasRow>(
         `
           SELECT
             p.id,
@@ -126,8 +126,36 @@ export async function POST(_request: Request, context: RouteContext) {
       );
 
       if (petugasResult.rows.length < target.jumlah_petugas) {
+        console.log(`Peringatan: Kekurangan petugas untuk jadwal ${target.id}. Mencoba Rencana B (Abaikan can_assign_petugas)...`);
+        
+        petugasResult = await client.query<PetugasRow>(
+          `
+            SELECT
+              p.id,
+              p.nama,
+              p.no_hp,
+              pc.total_penugasan
+            FROM petugas p
+            LEFT JOIN LATERAL (
+              SELECT count(*)::integer AS total_penugasan
+              FROM penugasan_petugas pp
+              WHERE pp.petugas_id = p.id
+                AND pp.status <> 'batal'
+                AND pp.jadwal_id <> $1::bigint
+            ) pc ON true
+            WHERE p.aktif = true
+              AND petugas_boleh_jadwal(p.id, $1::bigint)
+              -- KITA HAPUS SYARAT can_assign_petugas DI SINI
+            ORDER BY pc.total_penugasan ASC, random()
+            LIMIT $2::integer
+          `,
+          [target.id, target.jumlah_petugas],
+        );
+      }
+
+      if (petugasResult.rows.length < target.jumlah_petugas) {
         throw new Error(
-          "Jumlah petugas yang memenuhi aturan rotasi serta pilihan hari dan jam tidak cukup untuk jadwal ini.",
+          `Sistem gagal memenuhi kuota. Hanya ditemukan ${petugasResult.rows.length} petugas aktif, padahal jadwal membutuhkan ${target.jumlah_petugas} orang.`,
         );
       }
 

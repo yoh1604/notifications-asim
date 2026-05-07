@@ -12,6 +12,9 @@ notifikasi WhatsApp. Backend data lokal memakai PostgreSQL, bukan Supabase.
   koordinator, dan daftar petugas yang bertugas.
 - Jadwal bisa diacak otomatis untuk memilih daftar petugas dan satu
   koordinator.
+- Randomize hanya dapat dijalankan pada jadwal dengan status `draft`.
+- Hasil randomize perlu disimpan dengan tombol `Simpan` agar jadwal berubah ke
+  status `terjadwal` dan penugasan dihitung.
 - Setiap petugas yang tersimpan dari randomize dicatat di `penugasan_petugas`
   agar total penugasan bisa dihitung dan pembagian tetap merata.
 - Detail petugas bisa menyimpan pilihan hari dan jam. Jika pilihan ini kosong,
@@ -29,7 +32,9 @@ notifikasi WhatsApp. Backend data lokal memakai PostgreSQL, bukan Supabase.
 - `app/page.tsx` berisi UI utama.
 - `app/api/` berisi API route untuk `petugas`, `koordinator`, dan `jadwal`.
 - `app/api/jadwal/[id]/randomize` memilih daftar petugas dan satu koordinator
-  secara acak.
+  secara acak berdasarkan ketersediaan, pembatasan hari/jam, dan rotasi.
+- Randomize hanya mengisi jadwal yang masih `draft`; jadwal `terjadwal` tidak
+  bisa diacak ulang.
 - `app/components/DataManager.tsx` berisi form input manual data master.
 - `lib/db.ts` berisi koneksi pool PostgreSQL.
 - `db/migrations/001_create_core_tables.sql` berisi schema dan trigger rotasi.
