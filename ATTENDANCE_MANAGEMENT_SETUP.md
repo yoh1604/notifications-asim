@@ -237,22 +237,6 @@ Fetches current attendance status for all officers in a specific schedule.
 - Error: Red toast with error message
 - Info: Blue toast for informational messages
 - Auto-dismiss after 4 seconds
-
-### Responsive Design
-
-- Works on desktop, tablet, and mobile
-- Tailwind CSS styling for consistent appearance
-- Modal overlay for swap dialog with smooth transitions
-
----
-
-## 🔐 Security Considerations
-
-1. **Date Lock**: Once a schedule is marked 'selesai', no modifications are allowed
-2. **Immutable Check-in**: Check-in cannot be undone or modified after confirmation
-3. **Swap History**: All swaps are recorded with timestamps and user intent (manual/random)
-4. **Rotation Enforcement**: Swaps respect the Smart Randomizer rules to prevent officer overload
-
 ---
 
 ## 🔄 Workflow Example
@@ -270,29 +254,3 @@ Fetches current attendance status for all officers in a specific schedule.
 
 ---
 
-## 📋 Testing Checklist
-
-- [ ] Navigate to `/attendance` page successfully
-- [ ] Date/time picker works and filters schedules correctly
-- [ ] Officers display with correct urutan (order) and total_penugasan count
-- [ ] Check-in button works and creates history record
-- [ ] Check-in is immutable (button disabled after first check-in)
-- [ ] Swap modal opens with manual/random options
-- [ ] Manual mode shows available officers dropdown
-- [ ] Random mode shows confirmation message
-- [ ] Swap updates both old and new officer assignments
-- [ ] Swap history is recorded
-- [ ] Schedule lock works after status = 'selesai'
-- [ ] Toast notifications display for all actions
-- [ ] Refresh on success shows updated data
-- [ ] Error messages display for invalid operations
-
----
-
-## 🚦 Next Steps (Optional)
-
-1. **Add Admin Authentication** - Protect the attendance page with role-based access
-2. **Batch Check-in** - Allow checking in multiple officers at once
-3. **Export Report** - Generate attendance reports by date range
-4. **WhatsApp Notifications** - Send swap notifications to affected officers via Fonnte
-5. **Mobile App Integration** - Create mobile-friendly check-in interface
