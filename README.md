@@ -184,3 +184,8 @@ npm run build
 
 `npm run lint` saat ini pass dengan beberapa warning non-blocking dari kode UI
 lama.
+
+For operational issues (migrations, database consistency, WhatsApp token problems), check the logs and verify environment variables.
+
+---
+Generated documentation suite includes `MANUAL.md` and `DATABASE_SCHEMA.md` for deeper technical guidance.
