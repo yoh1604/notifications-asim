@@ -16,6 +16,7 @@ type JadwalRow = {
   catatan: string | null;
   petugas: Array<{
     id: number;
+    jadwal_petugas_id: number;
     nama: string;
     asisten_imam: string;
     no_hp: string | null;
@@ -39,6 +40,7 @@ const jadwalSelect = `
       jsonb_agg(
         jsonb_build_object(
           'id', p.id,
+          'jadwal_petugas_id', jp.id,
           'nama', p.nama,
           'asisten_imam', p.nama,
           'no_hp', p.no_hp,

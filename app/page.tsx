@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 import DataManager from "./components/DataManager";
 import type { Jadwal, Koordinator, Petugas } from "@/lib/types";
+// Tambahkan import ini di bagian atas file
+import AttendanceManager from './attendance/page'; 
 
 // --- HELPER UNTUK KIRIM WA ---
 const sendWA = async (number: string, message: string) => {
@@ -177,7 +179,7 @@ export default function UnifiedPage() {
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "batch" | "converter" | "data"
+    "batch" | "converter" | "data" | "attendance"
   >("batch");
   const [converterData, setConverterData] = useState<any[]>([]);
   const [copyNotification, setCopyNotification] = useState<{
@@ -191,6 +193,16 @@ export default function UnifiedPage() {
   useEffect(() => {
     muatDataDatabase();
   }, []);
+
+  // useEffect(() => {
+  //   // Tambahkan validasi, jangan fetch kalau tanggal/jam masih kosong
+  //   if (!selectedDate || !selectedTime) return;
+
+  //   // Panggil fungsinya
+  //   muatDataDatabase();
+
+  // // PERHATIKAN BARIS DI BAWAH INI: Array ini WAJIB ada dan HANYA berisi state pemicu
+  // }, [selectedDate, selectedTime]);
 
   const groupPetugasByWilayah = (data: Petugas[]) => {
     return data.reduce(
@@ -960,6 +972,16 @@ Terima kasih. 🙏`;
         >
           🗄️ Data Master
         </button>
+        <button
+          onClick={() => setActiveTab("attendance")}
+          className={`px-6 py-2 rounded-lg font-bold text-sm uppercase tracking-widest transition-all ${
+            activeTab === "attendance"
+              ? "bg-orange-600 text-white shadow-md"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+        >
+          📊 Attendance
+        </button>
       </div>
 
       {/* BATCH JADWAL TAB */}
@@ -1335,6 +1357,13 @@ Terima kasih. 🙏`;
             jadwal={jadwalList}
             onRefresh={muatDataDatabase}
           />
+        </div>
+      )}
+
+      {activeTab === "attendance" && (
+        <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* Panggil komponennya langsung di sini */}
+          <AttendanceManager />
         </div>
       )}
 
