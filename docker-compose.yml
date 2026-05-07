@@ -1,12 +1,15 @@
+name: asim-testing-version
 services:
   db:
     image: postgres:16-alpine
+    container_name: asim-web-db-testing
+    restart : always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-notifications_asim}
-      POSTGRES_USER: ${POSTGRES_USER:-notifications_asim}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notifications_asim}
+      POSTGRES_DB: ${POSTGRES_DB:-notifications_asim_testing}
+      POSTGRES_USER: ${POSTGRES_USER:-notifications_asim_testing}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testing_asim}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/migrations/001_create_core_tables.sql:/docker-entrypoint-initdb.d/001_create_core_tables.sql:ro
@@ -25,7 +28,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-notifications_asim} -d ${POSTGRES_DB:-notifications_asim}",
+          "pg_isready -U ${POSTGRES_USER:-notifications_asim_testing} -d ${POSTGRES_DB:-notifications_asim_testing}",
         ]
       interval: 5s
       timeout: 5s
@@ -36,16 +39,17 @@ services:
       context: .
       args:
         NEXT_PUBLIC_FONNTE_TOKEN: ${NEXT_PUBLIC_FONNTE_TOKEN:-}
+    container_name: asim-web-testing
     depends_on:
       db:
         condition: service_healthy
     environment:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: "1"
-      DATABASE_URL: postgresql://${POSTGRES_USER:-notifications_asim}:${POSTGRES_PASSWORD:-notifications_asim}@db:5432/${POSTGRES_DB:-notifications_asim}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-notifications_asim_testing}:${POSTGRES_PASSWORD:-testing_asim}@db:5432/${POSTGRES_DB:-notifications_asim_testing}
       NEXT_PUBLIC_FONNTE_TOKEN: ${NEXT_PUBLIC_FONNTE_TOKEN:-}
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_PORT:-3001}:3000"
     restart: unless-stopped
 
 volumes:

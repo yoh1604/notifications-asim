@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+docker-compose.yml
+public/data/asisten_imam.csv
+app/layout.tsx
+app/page.tsx

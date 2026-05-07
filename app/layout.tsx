@@ -3,7 +3,7 @@ import "./globals.css";
 
 // 2. Metadata Aplikasi
 export const metadata: Metadata = {
-  title: "Jadwal Asisten Imam",
+  title: "Testing Jadwal Asisten Imam",
   description: "Sistem Manajemen Jadwal dan Notifikasi WhatsApp",
 };
 

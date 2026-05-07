@@ -54,6 +54,9 @@ DECLARE
   target_tanggal date;
   target_jam time without time zone;
   target_status text;
+  -- Tambahan variabel untuk Opsi B
+  current_count integer;
+  min_available_count integer;
 BEGIN
   SELECT tanggal, jam, status
     INTO target_tanggal, target_jam, target_status
@@ -78,7 +81,30 @@ BEGIN
   END IF;
 
   IF NOT can_assign_petugas(NEW.petugas_id, target_tanggal, target_jam, NEW.jadwal_id) THEN
-    RAISE EXCEPTION 'Petugas ini sudah mendapat giliran. Habiskan semua petugas aktif lebih dulu sebelum ditugaskan kembali.';
+    
+    SELECT count(*) INTO current_count
+    FROM penugasan_petugas 
+    WHERE petugas_id = NEW.petugas_id 
+      AND status <> 'batal'
+      AND jadwal_id <> NEW.jadwal_id;
+
+    SELECT COALESCE(MIN(pc.cnt), 0) INTO min_available_count
+    FROM petugas p
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS cnt
+      FROM penugasan_petugas pp
+      WHERE pp.petugas_id = p.id 
+        AND pp.status <> 'batal'
+        AND pp.jadwal_id <> NEW.jadwal_id
+    ) pc ON true
+    WHERE p.aktif = true
+      AND p.id <> NEW.petugas_id
+      AND petugas_boleh_jadwal(p.id, NEW.jadwal_id);
+
+    IF current_count > min_available_count THEN
+      RAISE EXCEPTION 'Petugas ini sudah mendapat giliran. Masih ada petugas aktif lain yang penugasannya lebih sedikit (baru % penugasan). Habiskan giliran mereka dulu.', min_available_count;
+    END IF;
+    
   END IF;
 
   RETURN NEW;
